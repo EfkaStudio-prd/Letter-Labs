@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Generated G-code: large, and pinned by SHA-256 in artifacts/MANIFEST.md instead
+*.gcode
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# Local vendor artifacts, if someone drops them in to run the full test suite
+S528/
+A_SAMPLE_50mm.gcode

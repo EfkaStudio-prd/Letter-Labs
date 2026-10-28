@@ -1,0 +1,8 @@
+# Normalise source text, but never touch generated/fixture data.
+# The DXF fixtures must keep their original line endings or the reader and the
+# byte-level checks stop agreeing across platforms.
+* text=auto eol=lf
+
+*.dxf -text
+*.gcode -text
+*.png binary
