@@ -11,6 +11,25 @@ Engine: pure Python standard library. No pip installs, no numpy, no shapely.
 
 ---
 
+## Download the G-code
+
+The generated files are published as release assets:
+
+**<https://github.com/EfkaStudio-prd/Letter-Labs/releases/tag/v1.0-gcode>**
+
+| File | Job | Layers | Time | Filament |
+|---|---|---|---|---|
+| `TEST4_BALI_10mm_smoke.gcode` | machine proof, 10 mm — **print this first** | 33 | 69 min | 33 m |
+| `TEST2_BALI_40mm.gcode` | production job, 40 mm, 3 mm acrylic pocket | 133 | 333 min | 161 m |
+| `TEST1_A_50mm_ref.gcode` | vendor cross-check, 2-colour | 167 | 43 min | 21 m |
+| `TEST3_WELCOME_30mm.gcode` | 2-colour band test | 100 | 200 min | 97 m |
+| `SHA256SUMS.txt` | checksums for all of the above | — | — | — |
+
+Integrity is pinned twice: in `SHA256SUMS.txt` on the release, and in
+[`artifacts/MANIFEST.md`](artifacts/MANIFEST.md) in the repo.
+
+---
+
 ## Status
 
 | Area | State |
