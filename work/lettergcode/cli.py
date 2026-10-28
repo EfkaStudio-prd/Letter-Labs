@@ -71,6 +71,9 @@ def main(argv=None):
     ap.add_argument("--cell", type=float, default=0.25,
                     help="distance-field resolution in mm (default 0.25)")
     ap.add_argument("--no-pre-side", action="store_true", help="skip the prevent-curl frame")
+    ap.add_argument("--pre-passes", type=int, default=None, metavar="N",
+                    help="number of prevent-curl frame passes (INI iNumPreSide). "
+                         "The vendor emits one ';start printf' marker per pass")
     ap.add_argument("--first-layer-fill", action="store_true",
                     help="hatch the first layer solid for bed adhesion")
     ap.add_argument("--fill-spacing", type=float, default=0.8)
@@ -104,6 +107,11 @@ def main(argv=None):
         par.seat.depth = args.seat_depth
         par.seat.land = args.seat_land
         par.seat.ramp = args.seat_ramp
+    if args.pre_passes is not None:
+        # iNumPreSide: the pre-side frame emits one `;start printf` per pass, so
+        # this changes the marker count and must be explicit when comparing
+        # against a reference export.
+        par.let.iNumPreSide = max(0, int(args.pre_passes))
     if args.bands:
         vals = [float(v) for v in args.bands.split(",") if v.strip()]
         if not vals:

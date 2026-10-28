@@ -26,18 +26,25 @@ validated one.
 | File | Bytes | SHA-256 | Job |
 |---|---|---|---|
 | `TEST1_A_50mm_ref.gcode` | 8,950,246 | `e4b6fd0eb4c07245b568c59b56efe5fc961db60c1182756484ca47c45c6c197e` | vendor cross-check, letter A, 50 mm, 2-colour |
-| `TEST2_BALI_40mm.gcode` | 68,688,642 | `bddc810c4f47f92438b365e4f08bc77986be535c1bf065438d65c4ebd48bc93e` | **production job**, Bali Kita Kita logo, 40 mm, 1-colour, 3 mm pocket |
-| `TEST3_WELCOME_30mm.gcode` | 25,547,111 | `8f8283331b0d0972599f9d6a26f3e15a2beaf0b75e39cbafd5f6b7b12d8dada5` | 2-colour band test, 30 mm |
-| `TEST4_BALI_10mm_smoke.gcode` | 14,882,290 | `30661ad627848a2fba31e05540149bc125a317084d7740a9ce6353cd0d911060` | **print this first**, 10 mm machine proof |
+| `TEST2_BALI_40mm.gcode` | 68,508,025 | `910b0f2dda72fba7631a043df74aa66fbf7fc5e9f1e15d6bc9c671231996b81d` | **production job**, Bali Kita Kita logo, 40 mm, 1-colour, 3 mm pocket |
+| `TEST3_WELCOME_30mm.gcode` | 25,688,282 | `cc52ee69352590c6f5cd912c9b6d75c23fcd234bfea1622f693a689b7e093f12` | 2-colour band test, 30 mm |
+| `TEST4_BALI_10mm_smoke.gcode` | 14,834,506 | `edd7b328d7c4f78162884cd55231401895aa0d8271741e01b29647ef66ab89a7` | **print this first**, 10 mm machine proof |
 
-### Revision 2
+### Revision 3
 
-These files were regenerated after the corpus audit found three defects (see
-`docs/DIALECT_CORPUS.md`): a nozzle was cooled with `M104 S0` before its own first
-layer, band boundaries rounded instead of rounded up, and nothing checked the
-instruction vocabulary. Layer counts therefore changed for heights that are not a
-whole multiple of 0.3 mm — a 40 mm job is now 134 layers to z=40.20, not 133 to
-z=39.90. **Hash values from revision 1 no longer apply.**
+A real ZCCAD export (`welcome tes.gcode`, 30 mm, WELCOME) settled the layer-count
+rule. ZCCAD uses **`floor(height / layer) + 1`**, not `ceil`. For a 30 mm job that is
+101 layers to z=30.30, where the previous rule gave 100 to z=30.00. Heights that are
+not a whole multiple of the layer height are unaffected (40 mm stays 134, 10 mm stays
+34); only exact multiples change.
+
+Also in revision 3:
+
+- `;extruder switch` is emitted **only when the colour plan uses more than one tool**.
+  The vendor's own single-tool export omits it entirely.
+- New `--pre-passes` flag exposes `iNumPreSide`. The vendor writes one
+  `;start printf` marker per pre-side pass, so a reference built with 2 passes will
+  not match a file generated with 1. Hash values from revisions 1 and 2 no longer apply.
 
 Verify a local copy:
 
@@ -55,9 +62,9 @@ generator's internal model.
 | File | Layers | Size (mm) | Tools | Print time | Filament |
 |---|---|---|---|---|---|
 | `TEST1_A_50mm_ref` | 167 | 109.8 x 125.6 x 49.8 | T0, T1 | 43 min | 21 m |
-| `TEST2_BALI_40mm` | 134 | 325.7 x 196.4 x 40.2 | T0 | 336 min | 162 m |
-| `TEST3_WELCOME_30mm` | 100 | 327.9 x 173.8 x 29.7 | T0, T1 | 201 min | 97 m |
-| `TEST4_BALI_10mm_smoke` | 34 | 325.7 x 196.4 x 10.2 | T0 | 71 min | 34 m |
+| `TEST2_BALI_40mm` | 134 | 325.7 x 196.4 x 40.2 | T0 | 335 min | 162 m |
+| `TEST3_WELCOME_30mm` | 101 | 327.9 x 174.0 x 30.3 | T0, T1 | 202 min | 97 m |
+| `TEST4_BALI_10mm_smoke` | 34 | 325.7 x 196.4 x 10.2 | T0 | 70 min | 34 m |
 
 ---
 

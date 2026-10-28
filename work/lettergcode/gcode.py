@@ -127,7 +127,13 @@ class GCodeWriter:
     def write_initial_switch(self, first_tool):
         pr = self.p
         idle = self.idle
-        self.w(";extruder switch")
+        # The marker is NOT universal: a vendor single-tool export
+        # (`welcome tes.gcode`, 101 layers, T0 only) contains no `;extruder
+        # switch` at all, while every 2- and 3-tool export does. Emit it only
+        # when the colour plan actually asks for more than one tool.
+        multi = len({self.tool_for_glue(g) for g in pr.band_plan()}) > 1
+        if multi:
+            self.w(";extruder switch")
         self.w("G92 E0")
         self.w("G91")
         self.w(f"G0 X5 Y5 F{idle}")

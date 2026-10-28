@@ -11,20 +11,27 @@ from dataclasses import dataclass, field, fields
 
 
 def _layers_for(mm, h):
-    """Layer count for a height, rounded the way ZCCAD rounds it: UP.
+    """Layer index a height maps to, the way ZCCAD computes it: floor + 1.
 
-    Measured against a 3-tool vendor export (`TES .gcode`, 50.1 mm, bands
-    10/30/10): the first band boundary sits at z=10.20, which is 34 layers, not
-    the 33 that rounding gives. 10 / 0.3 = 33.33, and ZCCAD rounds up so a band is
-    never thinner than asked. The total is 167 layers either way here, so the band
-    boundary is what exposes the rule.
+    Proven on four independent exports whose requested height is known:
 
-    The epsilon keeps float noise from adding a phantom layer: 9 / 0.3 evaluates
-    to 30.000000000000004, which must still be 30 layers.
+        30 mm / 0.3  -> 101 layers, top z=30.30   (`welcome tes.gcode`, `1.gcode`)
+        50 mm / 0.3  -> 167 layers, top z=50.10   (`A_SAMPLE_50mm.gcode`, `TES .gcode`)
+        30 mm / 0.5  ->  61 layers, top z=30.50   (`Welcome new tes.gcode`)
+
+    `ceil` agrees with all three except where the division is exact, and an exact
+    division is precisely the 30 mm case: ceil gives 100, the vendor gives 101.
+    ZCCAD always rounds up by one extra layer, so the part is never short.
+
+    Used for both the total layer count and cumulative colour-band boundaries;
+    callers must pass a CUMULATIVE height for bands, not the per-band height.
+
+    The epsilon absorbs float noise: 30 / 0.3 evaluates to 100.00000000000001
+    and must floor to 100, not 101.
     """
     if not h or h <= 0:
         return 1
-    return max(1, int(math.ceil(mm / h - 1e-9)))
+    return max(1, int(math.floor(mm / h + 1e-9)) + 1)
 
 
 def _f(v, default=0.0):
@@ -270,11 +277,16 @@ class Params:
         if self.reverse_zones:
             zones.reverse()
         plan = []
+        cum = 0.0
         for i, (hi, gl) in enumerate(zones):
             if i == len(zones) - 1:
                 k = total - len(plan)
             else:
-                k = _layers_for(hi, h)
+                # cumulative, not per-band: ZCCAD's boundary for a 10 mm band is
+                # layer 34 and for 10+30 mm it is layer 134, which only a
+                # cumulative floor+1 reproduces.
+                cum += hi
+                k = _layers_for(cum, h) - len(plan)
             plan.extend([gl] * max(0, k))
         plan = plan[:total]
         while len(plan) < total:

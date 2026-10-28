@@ -67,6 +67,7 @@ def cmd_generate(a, rest=None):
                       ("--seat-w", a.seat_w), ("--min-area", a.min_area),
                       ("--max-area", a.max_area), ("--seat-depth", a.seat_depth),
                       ("--seat-land", a.seat_land), ("--seat-ramp", a.seat_ramp),
+                      ("--pre-passes", a.pre_passes),
                       ("--place", a.place), ("--offset", a.offset),
                       ("--cell", a.cell), ("--fill-spacing", a.fill_spacing)):
         if val is not None and val != "":
@@ -206,6 +207,11 @@ def build(argv):
                             "3 mm sheet means --seat-depth 3")
         p.add_argument("--seat-land", dest="seat_land", default=None)
         p.add_argument("--seat-ramp", dest="seat_ramp", default=None)
+        p.add_argument("--pre-passes", dest="pre_passes", default=None,
+                       help="number of prevent-curl frame passes (INI "
+                            "iNumPreSide). The vendor emits one ';start printf' "
+                            "marker per pass, so compare against a reference "
+                            "built with the same count")
         p.add_argument("--min-area", dest="min_area", default=None)
         p.add_argument("--max-area", dest="max_area", default=None,
                        help="drop contours larger than this mm2 (machine-bed "

@@ -30,6 +30,31 @@ distinct files.
 | `test 2.gcode` | 50 | 0.3 – 15.0 | 0.3 | T0,T1 | 351.70 x 207.82 | 42.2 m | 31 |
 | `W_bevel_30mm_BRAIN_R0.gcode` | 100 | 0.3 – 30.0 | 0.3 | T0,T1 | 79.87 x 95.11 | 54.8 m | 31 |
 | `W_tegak_15mm_BRAIN_R0.gcode` | 50 | 0.3 – 15.0 | 0.3 | T0,T1 | 79.87 x 95.11 | 40.3 m | 31 |
+| `welcome_tes_ZCCAD.gcode` | 101 | 0.3 – 30.3 | 0.3 | **T0 only** | 321.17 x 82.92 | 196.8 m | 31 |
+
+### The 30 mm export that settled the layer rule
+
+`welcome tes.gcode` is the single most useful file in the corpus: it is a real ZCCAD
+export where the requested height is known to be **30 mm**, and it contains
+**101 layers ending at z = 30.30**. That is `floor(30 / 0.3) + 1`, not
+`ceil(30 / 0.3)` = 100.
+
+Cross-checked against every other export with a known height:
+
+| Requested | Rule `floor(H/h)+1` | Observed | Matches |
+|---|---|---|---|
+| 30 mm / 0.3 | 101 → z 30.30 | `welcome tes`, `1.gcode` | yes |
+| 50 mm / 0.3 | 167 → z 50.10 | `A_SAMPLE_50mm`, `TES` | yes |
+| 30 mm / 0.5 | 61 → z 30.50 | `Welcome new tes` | yes |
+| 40 mm / 0.3 | 134 → z 40.20 | — | consistent |
+| 10 mm / 0.3 | 34 → z 10.20 | — | consistent |
+
+`ceil` agrees everywhere except an exact multiple, and 30 mm is exactly that case.
+ZCCAD deliberately overshoots by one layer so a part is never short.
+
+Also from this file: **`;extruder switch` is not universal.** It appears in every 2-
+and 3-tool export and is entirely absent from this single-tool one, so it is
+required only when the colour plan actually prints with more than one tool.
 
 `arr.gcode` and `Welcome new tes.gcode` report fewer printed layers than the Z
 range implies because a tool change skips one layer height — see *Quirks* below.
@@ -109,14 +134,16 @@ job resolved to T1, so the "is T0 active" test failed and the code cooled it.
 Fixed: the writer delegates to `Params.tool_no`, and the line is always
 `M104 S<iT0> T0` like the vendor. Guarded by selftest T11 and T12.
 
-### 2. Band boundaries rounded instead of ceiled
+### 2. Band boundaries and layer count use floor+1, not ceil
 
-A 10 mm band became 33 layers; ZCCAD makes 34. Fixed in `params._layers_for`
-(`ceil(x - 1e-9)`, the epsilon stops `9 / 0.3 = 30.000000000000004` from becoming
-31 layers). Total layer count uses the same rule.
+A 10 mm band became 33 layers and ZCCAD makes 34, so the rule was changed to
+`ceil`. A real 30 mm export later showed that was still wrong: ZCCAD's rule is
+`floor(H/h) + 1`, which for 10 mm also gives 34 but for an exact 30 mm gives 101
+rather than 100.
 
-Effect: a 40 mm job is now 134 layers to z=40.20 instead of 133 to z=39.90.
-Guarded by selftest T4.
+Fixed in `params._layers_for`, with the cumulative-height correction in
+`band_plan` (the 10+30 mm boundary is layer 134, which only a cumulative formula
+reproduces). Guarded by selftest T4.
 
 ### 3. Nothing checked the instruction vocabulary
 

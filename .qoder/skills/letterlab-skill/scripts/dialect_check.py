@@ -39,10 +39,18 @@ def shape(line):
 
 
 def scan(path):
-    """Return (shapes, e_per_mm_samples, markers) for one file."""
+    """Return (shapes, e_per_mm_samples, markers, body_tools) for one file.
+
+    `body_tools` counts only the tools that appear AFTER the first
+    `;start printf`, i.e. the ones that actually print. Every export pre-heats and
+    purges every configured nozzle, so counting all `T` words would report a
+    single-colour job as two tools.
+    """
     shapes = set()
     markers = []
     ratios = []
+    body = False
+    body_tools = set()
     x = y = z = 0.0
     e_abs = 0.0
     rel = False
@@ -53,9 +61,13 @@ def scan(path):
                 continue
             if s.startswith(";"):
                 markers.append(s)
+                if s == ";start printf":
+                    body = True
                 continue
             if RT.match(s):
                 shapes.add(shape(s))
+                if body:
+                    body_tools.add(int(RT.match(s).group(1)))
                 continue
             if s.startswith("G92"):
                 v = {k: float(n) for k, n in RX.findall(s)}
@@ -94,7 +106,7 @@ def scan(path):
                 if d > 1e-6:
                     ratios.append(de / d)
             x, y, z = nx, ny, nz
-    return shapes, ratios, markers
+    return shapes, ratios, markers, body_tools
 
 
 def main(argv):
@@ -135,7 +147,7 @@ def main(argv):
     n_ok = 0
     print("== corpus ==")
     for f in files:
-        sh, ratios, mk = scan(f)
+        sh, ratios, mk, _ = scan(f)
         r = sorted(ratios)
         med = r[len(r) // 2] if r else None
         # a file whose E/mm is orders of magnitude off is a broken export, not a
@@ -173,12 +185,17 @@ def main(argv):
     bad = 0
     for t in tests:
         print("\n== test: %s ==" % os.path.basename(t))
-        sh, ratios, mk = scan(t)
+        sh, ratios, mk, body_tools = scan(t)
         novel = sorted(sh - set(vocab))
+        # `;extruder switch` is not universal: the vendor's own single-tool export
+        # (101 layers, T0 only) omits it, while every 2- and 3-tool export has it.
+        req = set(required)
+        if len(body_tools) <= 1:
+            req.discard(";extruder switch")
         r = sorted(ratios)
         emm = r[len(r) // 2] if r else 0.0
         dev = abs(emm - ref) / ref if ref else 1.0
-        missing = sorted(required - set(mk))
+        missing = sorted(req - set(mk))
         ok = not novel and dev < 1e-6 and not missing
 
         print("   line shapes   : %d" % len(sh))
@@ -191,6 +208,10 @@ def main(argv):
               % (len(mk), len(missing), "" if not missing else "<-- MISSING"))
         for m in missing:
             print("        %s" % m)
+        print("   tools printing: %d%s"
+              % (len(body_tools),
+                 "  (single tool: `;extruder switch` not required)"
+                 if len(body_tools) <= 1 else ""))
         print("   verdict       : %s" % ("CONFORMS" if ok else "DOES NOT CONFORM"))
         if not ok:
             bad += 1

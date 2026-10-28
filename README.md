@@ -19,10 +19,10 @@ The generated files are published as release assets:
 
 | File | Job | Layers | Time | Filament |
 |---|---|---|---|---|
-| `TEST4_BALI_10mm_smoke.gcode` | machine proof, 10 mm — **print this first** | 34 | 71 min | 34 m |
-| `TEST2_BALI_40mm.gcode` | production job, 40 mm, 3 mm acrylic pocket | 134 | 336 min | 162 m |
+| `TEST4_BALI_10mm_smoke.gcode` | machine proof, 10 mm — **print this first** | 34 | 70 min | 34 m |
+| `TEST2_BALI_40mm.gcode` | production job, 40 mm, 3 mm acrylic pocket | 134 | 335 min | 162 m |
 | `TEST1_A_50mm_ref.gcode` | vendor cross-check, 2-colour | 167 | 43 min | 21 m |
-| `TEST3_WELCOME_30mm.gcode` | 2-colour band test | 100 | 201 min | 97 m |
+| `TEST3_WELCOME_30mm.gcode` | 2-colour band test | 101 | 202 min | 97 m |
 | `SHA256SUMS.txt` | checksums for all of the above | — | — | — |
 
 Integrity is pinned twice: in `SHA256SUMS.txt` on the release, and in

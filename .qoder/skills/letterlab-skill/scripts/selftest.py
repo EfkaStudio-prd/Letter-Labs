@@ -202,13 +202,33 @@ def test_hem():
 
 
 def _gen(out):
+    return _gen_args(out, [])
+
+
+# The golden reference A_SAMPLE_50mm.gcode was built with these exact parameters.
+# They must be passed explicitly: the live S528\GcodePara.ini changes whenever
+# someone works in the GUI, and reading height from it silently compared a 30 mm
+# job against a 50 mm reference.
+GOLDEN_ARGS = ["--height", "50", "--layer", "0.3", "--width", "1.2",
+               "--passes", "1", "--spacing", "0.8",
+               "--bands", "10,30,10", "--glue", "1,2,1",
+               "--speed", "3600", "--first-speed", "1800", "--pre-passes", "2"]
+
+
+def _gen_args(out, extra):
+    """Generate with the golden parameters, then any test-specific overrides.
+
+    Later options win in argparse, so `extra` can override `--height` and
+    `--bands` for tests that need a different job shape.
+    """
     env = dict(os.environ)
     env["PYTHONPATH"] = os.path.join(REPO, "work")
-    return subprocess.run(
-        ["python", "-m", "lettergcode", "--dxf", FIXTURE, "--out", out,
-         "--ini", os.path.join(REPO, "S528", "GcodePara.ini")],
-        cwd=os.path.join(REPO, "work"), env=env,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+    cmd = (["python", "-m", "lettergcode", "--dxf", FIXTURE, "--out", out,
+            "--ini", os.path.join(REPO, "S528", "GcodePara.ini")]
+           + GOLDEN_ARGS + list(extra))
+    return subprocess.run(cmd, cwd=os.path.join(REPO, "work"), env=env,
+                          stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL).returncode
 
 
 def _vendor_refs_present():
@@ -287,17 +307,6 @@ def test_simulator(tmp):
     check("T8 simulator tool/layer/E-modal", ok_tools and ok_layers and ok_rel,
           "tools=%s layers=%d len=%s" % (st["tools"], st["layers"],
                                          {k: round(v, 1) for k, v in st["length_by_tool_mm"].items()}))
-
-
-def _gen_args(out, extra):
-    """Generate with extra CLI flags, so a test can drive a specific job shape."""
-    env = dict(os.environ)
-    env["PYTHONPATH"] = os.path.join(REPO, "work")
-    cmd = ["python", "-m", "lettergcode", "--dxf", FIXTURE, "--out", out,
-           "--ini", os.path.join(REPO, "S528", "GcodePara.ini")] + list(extra)
-    return subprocess.run(cmd, cwd=os.path.join(REPO, "work"), env=env,
-                          stdout=subprocess.DEVNULL,
-                          stderr=subprocess.DEVNULL).returncode
 
 
 def test_no_zero_temp(tmp):
