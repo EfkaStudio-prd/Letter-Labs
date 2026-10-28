@@ -86,6 +86,13 @@ only contours inside the largest outline.
 | Per-layer diff | `letterlab.py audit --gcode Y --ref V` |
 | 3D PNG only | `letterlab.py preview --gcode Y [--width 1.2 --yaw 45 --elev 24]` |
 | Numbers only | `letterlab.py preview --gcode Y --stats` |
+| Who prints which Z | `tool_zones.py FILE.gcode [--zones]` |
+
+`tool_zones.py` answers "which T covers which millimetres" from the extruding
+moves only, so the header purge dance cannot mislead it. Use it to check a colour
+plan before printing, and to reverse-engineer a vendor export whose physical
+result is known — that is how the `UI n -> T(n-1)` mapping was confirmed against a
+real printed part.
 
 All generator flags pass through to `python -m lettergcode`; see
 `reference/parameters.md` for what each one means on the machine.

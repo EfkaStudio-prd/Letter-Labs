@@ -196,12 +196,35 @@ as drawn.
 
 ---
 
-## 10. What is still unproven
+## 10. Physical run
+
+A vendor export in this exact dialect has been printed on the machine:
+`5 (2).gcode`, 414,726 bytes, md5 `e5cd7abb4cc5af4c6c4f93c281ddfdb6`. Full
+analysis, photos and the filament mapping are in
+[PHYSICAL_RUN.md](PHYSICAL_RUN.md).
+
+Headline results:
+
+- 15.00 mm tall, 0.30 mm layers, part 100.07 x 150.00 mm, exactly 2 tools.
+- `T1` prints z 0.30 .. 5.10, then `T0` prints z 5.10 .. 15.00. The switch lands
+  precisely on layer 17.
+- Spool order 1/2/3 = transparent / white / transparent resolves to
+  `T0` / `T1` / `T2`, matching the printed part.
+- This engine reproduces that structure: `--height 15 --bands 5.1,9.9 --glue 2,1`
+  gives `T1` from 0.30 and `T0` from 5.10.
+
+What that does **not** prove: the printed file was written by ZCCAD, not by this
+engine. The machine and the dialect are proven; a LetterLab file is not.
+
+---
+
+## 11. What is still unproven
 
 | Item | Why | Consequence |
 |---|---|---|
-| A physical print | No machine access from software | **The final gate. Print `TEST4` first.** |
-| `T0` / `T1` physical colour | Never confirmed by the operator | Do not run a two-colour job until known |
+| A LetterLab file on hardware | Only a vendor export has been printed | **The final gate. Print `TEST4` first.** |
+| Dimensional accuracy | Never measured on a printed part | Wall thickness, pocket fit and overall size are unverified against the spec |
+| `T2` | Loaded but never used in the confirmed print | Third colour route untested |
 | Bevel / incline letters | Not implemented | Straight-edge only |
 | Vendor export for the Bali shape | Does not exist | `TEST2/3/4` inherit dialect proof from `TEST1`; their geometry is unaudited against a vendor twin |
 | Taper pass-count rule above the band | Only one sampled export | Not needed while bevel is unimplemented |

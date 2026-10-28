@@ -39,7 +39,7 @@ Integrity is pinned twice: in `SHA256SUMS.txt` on the release, and in
 | Acrylic pocket (pangkon) | **Verified** from emitted G-code |
 | DXF input | LINE, LWPOLYLINE, POLYLINE, ARC, CIRCLE, ELLIPSE, SPLINE (NURBS), INSERT of BLOCK |
 | Bevel / incline letters | **Not implemented** (see [Scope limits](#scope-limits)) |
-| Physical machine run | **Not yet done** — this is the one gate that cannot be closed from software |
+| Physical machine run | **Vendor dialect confirmed** on hardware; a LetterLab-generated file has not yet been printed — see [docs/PHYSICAL_RUN.md](docs/PHYSICAL_RUN.md) |
 
 ---
 
@@ -110,6 +110,7 @@ prove the *geometry*.
   scripts/labcheck.py              per-layer ring count / path length diff
   scripts/validate_gcode.py        structural dialect gates
   scripts/dxfprobe.py              pre-flight DXF inspection
+  scripts/tool_zones.py            which T covers which Z millimetres
   scripts/selftest.py              10-test engine verification
   reference/dialect.md             exact G-code format
   reference/parameters.md          every GcodePara.ini section -> UI tab -> effect
@@ -121,11 +122,13 @@ work/lettergcode/                  the engine
 
 docs/
   VALIDATION_REPORT.md             the measured evidence
+  PHYSICAL_RUN.md                  a vendor export and its real printed part
   MANUAL_MAP.md                    vendor manual -> field -> INI key -> CLI flag
   PRODUCTION_CHECKLIST.md          pre-flight list before sending to the machine
 
 artifacts/
   *.png                            3D simulations of each validated job
+  physical_run/*.jpg               photographs of a confirmed print
   MANIFEST.md                      SHA-256 of the generated G-code
 ```
 
@@ -161,8 +164,10 @@ the structural gates can see.
 - **`--seat-depth` is the acrylic thickness**, not a free parameter. A 3 mm sheet
   means `--seat-depth 3`, which puts the pocket shoulder at `height - 3`. Verify
   by ring count, not by the report.
-- **`T0`/`T1` to physical colour is unconfirmed.** Do not run a two-colour job
-  until the nozzle-to-filament mapping is known.
+- **`T0`/`T1` to physical colour is confirmed for one machine setup**: slot 1 ->
+  `T0` = transparent, slot 2 -> `T1` = white, slot 3 -> `T2` = transparent, derived
+  from a printed part and its G-code. Re-confirm if the spools are reloaded in a
+  different order.
 
 ---
 
