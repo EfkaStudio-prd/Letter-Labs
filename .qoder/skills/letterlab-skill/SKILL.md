@@ -14,17 +14,19 @@ reference file to verify against.
 
 ## Non-negotiable rule
 
-A `.gcode` file is **not print-ready** until all three of these pass:
+A `.gcode` file is **not print-ready** until all four of these pass:
 
 1. `selftest.py` reports `ALL CHECKS PASS` — the engine itself is sound.
-2. `validate_gcode.py` reports `ALL GATES PASS` against a real vendor export that
+2. `dialect_check.py` reports `CONFORMS` — every line shape already exists in a
+   real vendor export, and E/mm matches the corpus.
+3. `validate_gcode.py` reports `ALL GATES PASS` against a real vendor export that
    used the same parameters.
-3. The 3D preview (`gcode3d.py`) has been looked at, and the part, the colour
+4. The 3D preview (`gcode3d.py`) has been looked at, and the part, the colour
    bands and the layer count are what the user asked for.
 
 If any is missing, say the output is UNVERIFIED. Never present a generated file
-as ready on the strength of "it parsed". The structural gates prove the
-*dialect*; only the preview and the audit prove the *geometry*.
+as ready on the strength of "it parsed". Checks 2 and 3 prove the *dialect*; only
+the preview and the audit prove the *geometry*.
 
 ## Quick start
 
@@ -87,6 +89,7 @@ only contours inside the largest outline.
 | 3D PNG only | `letterlab.py preview --gcode Y [--width 1.2 --yaw 45 --elev 24]` |
 | Numbers only | `letterlab.py preview --gcode Y --stats` |
 | Who prints which Z | `tool_zones.py FILE.gcode [--zones]` |
+| Is every line vendor-legal? | `dialect_check.py --corpus DIR --test FILE` |
 
 `tool_zones.py` answers "which T covers which millimetres" from the extruding
 moves only, so the header purge dance cannot mislead it. Use it to check a colour

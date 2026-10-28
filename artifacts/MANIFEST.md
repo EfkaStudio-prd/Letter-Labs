@@ -25,10 +25,19 @@ validated one.
 
 | File | Bytes | SHA-256 | Job |
 |---|---|---|---|
-| `TEST1_A_50mm_ref.gcode` | 8,950,322 | `B6E8EE626888B9207232A2DE016CAFFEBC25A219D57717CA13F006DCB1ACC514` | vendor cross-check, letter A, 50 mm, 2-colour |
-| `TEST2_BALI_40mm.gcode` | 68,250,449 | `E2A68B4A43DD55B4391DC498E268368F68D9A6385FDE1D16F7EAD67C69CCFEB3` | **production job**, Bali Kita Kita logo, 40 mm, 1-colour, 3 mm pocket |
-| `TEST3_WELCOME_30mm.gcode` | 25,547,329 | `0732760CAA3E0CA7B31382AE5EF9A755816F2DCDB2539D88296D6D0393FB18AD` | 2-colour band test, 30 mm |
-| `TEST4_BALI_10mm_smoke.gcode` | 14,444,424 | `4D51438025ED7A2139E1724ECA6BEF8E96401ECA7BB659592408A2D235663965` | **print this first**, 10 mm machine proof |
+| `TEST1_A_50mm_ref.gcode` | 8,950,246 | `e4b6fd0eb4c07245b568c59b56efe5fc961db60c1182756484ca47c45c6c197e` | vendor cross-check, letter A, 50 mm, 2-colour |
+| `TEST2_BALI_40mm.gcode` | 68,688,642 | `bddc810c4f47f92438b365e4f08bc77986be535c1bf065438d65c4ebd48bc93e` | **production job**, Bali Kita Kita logo, 40 mm, 1-colour, 3 mm pocket |
+| `TEST3_WELCOME_30mm.gcode` | 25,547,111 | `8f8283331b0d0972599f9d6a26f3e15a2beaf0b75e39cbafd5f6b7b12d8dada5` | 2-colour band test, 30 mm |
+| `TEST4_BALI_10mm_smoke.gcode` | 14,882,290 | `30661ad627848a2fba31e05540149bc125a317084d7740a9ce6353cd0d911060` | **print this first**, 10 mm machine proof |
+
+### Revision 2
+
+These files were regenerated after the corpus audit found three defects (see
+`docs/DIALECT_CORPUS.md`): a nozzle was cooled with `M104 S0` before its own first
+layer, band boundaries rounded instead of rounded up, and nothing checked the
+instruction vocabulary. Layer counts therefore changed for heights that are not a
+whole multiple of 0.3 mm — a 40 mm job is now 134 layers to z=40.20, not 133 to
+z=39.90. **Hash values from revision 1 no longer apply.**
 
 Verify a local copy:
 
@@ -46,9 +55,9 @@ generator's internal model.
 | File | Layers | Size (mm) | Tools | Print time | Filament |
 |---|---|---|---|---|---|
 | `TEST1_A_50mm_ref` | 167 | 109.8 x 125.6 x 49.8 | T0, T1 | 43 min | 21 m |
-| `TEST2_BALI_40mm` | 133 | 325.7 x 196.4 x 39.6 | T0 | 333 min | 161 m |
-| `TEST3_WELCOME_30mm` | 100 | 327.9 x 173.8 x 29.7 | T0, T1 | 200 min | 97 m |
-| `TEST4_BALI_10mm_smoke` | 33 | 325.7 x 196.4 x 9.6 | T0 | 69 min | 33 m |
+| `TEST2_BALI_40mm` | 134 | 325.7 x 196.4 x 40.2 | T0 | 336 min | 162 m |
+| `TEST3_WELCOME_30mm` | 100 | 327.9 x 173.8 x 29.7 | T0, T1 | 201 min | 97 m |
+| `TEST4_BALI_10mm_smoke` | 34 | 325.7 x 196.4 x 10.2 | T0 | 71 min | 34 m |
 
 ---
 

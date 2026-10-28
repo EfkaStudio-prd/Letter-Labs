@@ -184,7 +184,9 @@ def test_band_plan():
         else:
             runs.append([glue, 1])
     got = [(g, c) for g, c in runs]
-    want = [(1, 33), (2, 100), (1, 34)]
+    # ZCCAD rounds a band UP: 10 mm is 34 layers (z=10.20), measured on the
+    # 3-tool vendor export TES .gcode. The last band takes the remainder.
+    want = [(1, 34), (2, 100), (1, 33)]
     check("T4 bands mm -> whole layers", got == want and len(plan) == 167,
           "%s (n=%d)" % (got, len(plan)))
 
@@ -287,6 +289,59 @@ def test_simulator(tmp):
                                          {k: round(v, 1) for k, v in st["length_by_tool_mm"].items()}))
 
 
+def _gen_args(out, extra):
+    """Generate with extra CLI flags, so a test can drive a specific job shape."""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.path.join(REPO, "work")
+    cmd = ["python", "-m", "lettergcode", "--dxf", FIXTURE, "--out", out,
+           "--ini", os.path.join(REPO, "S528", "GcodePara.ini")] + list(extra)
+    return subprocess.run(cmd, cwd=os.path.join(REPO, "work"), env=env,
+                          stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL).returncode
+
+
+def test_no_zero_temp(tmp):
+    """A job must never cool the nozzle it is about to print with.
+
+    Found on a real defect: a second, inverted tool-mapping implementation made a
+    glue-1 job resolve to T1, so the writer emitted `M104 S0 T0` one line before
+    `T0` started the first layer. None of the 13 vendor exports in the corpus
+    contains `M104 S0` at all - the footer uses `M104 S30 Tn`.
+    """
+    import re
+    if REPO is None:
+        check("T11 single-colour keeps its nozzle hot", False, "engine not found")
+        return
+    out = os.path.join(tmp, "one_colour.gcode")
+    if _gen_args(out, ["--height", "3", "--bands", "3", "--glue", "1"]) != 0:
+        check("T11 single-colour keeps its nozzle hot", False, "generate failed")
+        return
+    zero = 0
+    hot = 0
+    with open(out, "r", encoding="ascii", errors="replace") as fh:
+        for ln in fh:
+            m = re.match(r"^M104 S(\d+) T0$", ln.strip())
+            if m:
+                if int(m.group(1)) == 0:
+                    zero += 1
+                else:
+                    hot += 1
+    check("T11 single-colour keeps its nozzle hot", zero == 0 and hot >= 1,
+          "M104 S0 x%d, M104 S<temp> T0 x%d (vendor: zero S0)" % (zero, hot))
+
+
+def test_glue_mapping():
+    """One rule only: glue g -> T(g-1), for every band count."""
+    if REPO is None:
+        check("T12 glue index maps to T(g-1)", False, "engine not found")
+        return
+    from lettergcode.params import Params
+    p = Params()
+    got = [p.tool_no(g) for g in (1, 2, 3)]
+    ok = got == [0, 1, 2]
+    check("T12 glue index maps to T(g-1)", ok, "tool_no(1,2,3) -> %s" % got)
+
+
 def test_modal_feed(tmp):
     """F is modal. Most vertex lines carry no F word, so a simulator that times
     them at a default instead of the inherited value reports roughly double the
@@ -363,6 +418,8 @@ def main(argv):
             test_golden_rings(ran, tmp)
         test_simulator(tmp)
         test_modal_feed(tmp)
+        test_no_zero_temp(tmp)
+        test_glue_mapping()
         test_png_writer(tmp)
     failed = [n for n, ok, _ in RESULTS if not ok]
     print("\n%d/%d checks passed" % (len(RESULTS) - len(failed), len(RESULTS)))

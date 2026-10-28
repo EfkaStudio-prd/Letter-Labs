@@ -19,10 +19,10 @@ The generated files are published as release assets:
 
 | File | Job | Layers | Time | Filament |
 |---|---|---|---|---|
-| `TEST4_BALI_10mm_smoke.gcode` | machine proof, 10 mm — **print this first** | 33 | 69 min | 33 m |
-| `TEST2_BALI_40mm.gcode` | production job, 40 mm, 3 mm acrylic pocket | 133 | 333 min | 161 m |
+| `TEST4_BALI_10mm_smoke.gcode` | machine proof, 10 mm — **print this first** | 34 | 71 min | 34 m |
+| `TEST2_BALI_40mm.gcode` | production job, 40 mm, 3 mm acrylic pocket | 134 | 336 min | 162 m |
 | `TEST1_A_50mm_ref.gcode` | vendor cross-check, 2-colour | 167 | 43 min | 21 m |
-| `TEST3_WELCOME_30mm.gcode` | 2-colour band test | 100 | 200 min | 97 m |
+| `TEST3_WELCOME_30mm.gcode` | 2-colour band test | 100 | 201 min | 97 m |
 | `SHA256SUMS.txt` | checksums for all of the above | — | — | — |
 
 Integrity is pinned twice: in `SHA256SUMS.txt` on the release, and in
@@ -87,12 +87,14 @@ unless T6 and T7 actually executed.
 
 ## Golden rule
 
-A `.gcode` is **not print-ready** until all three pass:
+A `.gcode` is **not print-ready** until all four pass:
 
 1. `selftest.py` reports `ALL CHECKS PASS`
-2. `validate_gcode.py` reports `ALL GATES PASS` against a vendor export built with
+2. `dialect_check.py` reports `CONFORMS` — every line shape already exists in a
+   real vendor export
+3. `validate_gcode.py` reports `ALL GATES PASS` against a vendor export built with
    the same parameters
-3. The 3D preview has been looked at, and the part / colour bands / layer count
+4. The 3D preview has been looked at, and the part / colour bands / layer count
    are what was asked for
 
 Structural gates prove the *dialect*. Only the preview and the per-layer audit
@@ -110,8 +112,9 @@ prove the *geometry*.
   scripts/labcheck.py              per-layer ring count / path length diff
   scripts/validate_gcode.py        structural dialect gates
   scripts/dxfprobe.py              pre-flight DXF inspection
+  scripts/dialect_check.py         line-vocabulary subset vs a vendor corpus
   scripts/tool_zones.py            which T covers which Z millimetres
-  scripts/selftest.py              10-test engine verification
+  scripts/selftest.py              12-test engine verification
   reference/dialect.md             exact G-code format
   reference/parameters.md          every GcodePara.ini section -> UI tab -> effect
   reference/findings.md            verified facts, open gaps, golden test recipe
@@ -122,6 +125,7 @@ work/lettergcode/                  the engine
 
 docs/
   VALIDATION_REPORT.md             the measured evidence
+  DIALECT_CORPUS.md                the dialect derived from 13 real exports
   PHYSICAL_RUN.md                  a vendor export and its real printed part
   MANUAL_MAP.md                    vendor manual -> field -> INI key -> CLI flag
   PRODUCTION_CHECKLIST.md          pre-flight list before sending to the machine

@@ -6,7 +6,25 @@ S528\\GcodePara.ini can be mapped 1:1. Section names are the INI section names.
 from __future__ import annotations
 
 import configparser
+import math
 from dataclasses import dataclass, field, fields
+
+
+def _layers_for(mm, h):
+    """Layer count for a height, rounded the way ZCCAD rounds it: UP.
+
+    Measured against a 3-tool vendor export (`TES .gcode`, 50.1 mm, bands
+    10/30/10): the first band boundary sits at z=10.20, which is 34 layers, not
+    the 33 that rounding gives. 10 / 0.3 = 33.33, and ZCCAD rounds up so a band is
+    never thinner than asked. The total is 167 layers either way here, so the band
+    boundary is what exposes the rule.
+
+    The epsilon keeps float noise from adding a phantom layer: 9 / 0.3 evaluates
+    to 30.000000000000004, which must still be 30 layers.
+    """
+    if not h or h <= 0:
+        return 1
+    return max(1, int(math.ceil(mm / h - 1e-9)))
 
 
 def _f(v, default=0.0):
@@ -196,7 +214,7 @@ class Params:
     # ------------------------------------------------------------------ layers
     @property
     def layer_count(self) -> int:
-        return max(1, int(round(self.let.dbHeightShell / self.let.dbHeightLayer)))
+        return _layers_for(self.let.dbHeightShell, self.let.dbHeightLayer)
 
     @property
     def wall_thickness(self) -> float:
@@ -256,7 +274,7 @@ class Params:
             if i == len(zones) - 1:
                 k = total - len(plan)
             else:
-                k = int(round(hi / h))
+                k = _layers_for(hi, h)
             plan.extend([gl] * max(0, k))
         plan = plan[:total]
         while len(plan) < total:

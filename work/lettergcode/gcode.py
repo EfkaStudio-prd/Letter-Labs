@@ -76,8 +76,14 @@ class GCodeWriter:
         return length * self.p.e_per_mm
 
     def tool_for_glue(self, glue_no):
-        n = self.p.extruder_count
-        return max(0, n - int(glue_no))
+        """Delegate to the one mapping function; never re-derive it here.
+
+        There used to be a second implementation here (`extruder_count - glue`)
+        that inverted the rule and made a glue-1 job resolve to T1. Two sources
+        of truth for the same mapping is how a nozzle ends up switched off in the
+        middle of its own first layer.
+        """
+        return self.p.tool_no(glue_no)
 
     # ------------------------------------------------------------------- header
     def write_head(self, tools):
@@ -128,11 +134,11 @@ class GCodeWriter:
         self.w(f"G0 F{idle} Z0")
         self.w("G90")
         self.w(f"G1 F{pr.glu.iSpeedColorSwitch} E-{g(pr.glu.dbDisColorBack / 2)}")
-        # The vendor always parks T0 at its print temperature here because in the
-        # two-colour jobs it is needed a few layers later.  In a single-colour job
-        # T0 never runs, so holding it at 220 C only makes it drool - leave it cold.
-        active = {self.tool_for_glue(glue) for glue in pr.band_plan()} or {0}
-        self.w(f"M104 S{pr.pri.iT0 if 0 in active else 0} T0")
+        # The vendor keeps T0 at its print temperature here in EVERY export; it
+        # never writes a cooldown until the footer. Emitting `M104 S0 T0` for a
+        # single-colour job turns the nozzle off one line before it starts
+        # printing with it. Match the vendor line exactly.
+        self.w(f"M104 S{pr.pri.iT0} T0")
         self.w(f"T{first_tool}")
         self.w("G92 E0")
         self.w("G90")
