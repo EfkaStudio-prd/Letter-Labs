@@ -50,8 +50,14 @@ M106 S0
 ;End of Gcode
 ```
 
-Both nozzles are heated even in a single-colour job, because the vendor always
-emits one block per configured tool.
+The vendor emits one heat block per **configured** tool. Every file in the corpus is
+a 2- or 3-tool job, so those heat 2 or 3 nozzles. A single-colour job here emits
+only the block for the tool its band plan references. That case does not occur in
+the 13-file corpus, so the vendor's behaviour for it is unconfirmed — but the lines
+it uses (`M104 S220 T0` / `M109 S220 T0`) are vendor shapes either way.
+
+Never `M104 S0`. No export in the corpus contains that line; see
+[DIALECT_CORPUS.md](DIALECT_CORPUS.md) for the defect that came from emitting it.
 
 ---
 
@@ -80,16 +86,18 @@ frequencies up to geometry differences.
 The structural gates compare *sets* of values. This test is stricter: it asks
 whether **any line shape we emit is absent from the vendor corpus**.
 
-Method: take 5 real vendor exports (46 distinct line shapes), mask only
-coordinate/extrusion/feed values, and keep command numbers (`G0 G1 G21 G28 G82
-G90 G91 G92 M104 M106 M107 M109 M117 M84 T0 T1 T2`) intact. Then diff.
+Method: take the 13 supplied exports (11 distinct files, 12 usable, **36 distinct
+line shapes**), mask only coordinate/extrusion/feed values, and keep command
+numbers (`G0 G1 G21 G28 G82 G90 G91 G92 M104 M106 M107 M109 M117 M84 T0 T1 T2`)
+intact. Then diff. `2.gcode` is excluded automatically because its E channel is
+broken (total extrusion 0.0 mm over 61.7 m of path).
 
 | File | Shapes emitted | Not found in a vendor file |
 |---|---|---|
-| `TEST1_A_50mm_ref.gcode` | 39 | **0** |
-| `TEST2_BALI_40mm.gcode` | 36 | **0** |
-| `TEST3_WELCOME_30mm.gcode` | 39 | **0** |
-| `TEST4_BALI_10mm_smoke.gcode` | 36 | **0** |
+| `TEST1_A_50mm_ref.gcode` | 31 | **0** |
+| `TEST2_BALI_40mm.gcode` | 27 | **0** |
+| `TEST3_WELCOME_30mm.gcode` | 31 | **0** |
+| `TEST4_BALI_10mm_smoke.gcode` | 27 | **0** |
 
 Nothing is invented. Every line uses a form a real ZCCAD export already
 contains: no custom commands, no foreign flavour, no comments the firmware could
@@ -125,17 +133,22 @@ geometry gap.
 
 ## 6. Acrylic pocket verified from the emitted G-code
 
-`TEST2_BALI_40mm.gcode`, 40 mm shell, `--seat-w 3.2 --seat-depth 3`:
+`TEST2_BALI_40mm.gcode`, 40 mm shell (134 layers, top z=40.20), `--seat-w 3.2
+--seat-depth 3`:
 
 ```
 60 rings/layer   baseline: 30 contours x 2 wall passes
-88   from z=27.6   ramp begins (shoulder - land - ramp)
-160  from z=35.1   full pocket wall
-60   from z=37.2   lip only
+88   from z=27.9   ramp begins (shoulder - land - ramp)
+160  from z=35.4   full pocket wall
+60   from z=37.5   lip only
 ```
 
-`40 - 3 = 37`, so the pocket is exactly 3 mm deep for a 3 mm sheet, matching the
-vendor footstep rule `pos = letter height - acrylic`.
+The shoulder is at `40.20 - 3 = 37.20`, so the first lip-only layer is 37.50 and
+the pocket is exactly 3 mm deep for a 3 mm sheet, matching the vendor footstep
+rule `pos = letter height - acrylic`.
+
+Numbers here are revision 2. Revision 1 (133 layers, top 39.90) had the shoulder
+at 36.90 and the collapse at 37.20.
 
 Two defects were found and fixed while establishing this:
 

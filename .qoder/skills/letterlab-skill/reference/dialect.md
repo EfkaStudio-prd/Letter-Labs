@@ -28,8 +28,8 @@ M106 S255
 
 ## Header
 
-Both nozzles are heated even in a single-colour job, because the vendor always
-emits a block per configured tool:
+One heat block per **configured** tool. Every export in the 13-file corpus is a 2-
+or 3-tool job, so those heat 2 or 3 nozzles:
 
 ```
 M104 S220 T0

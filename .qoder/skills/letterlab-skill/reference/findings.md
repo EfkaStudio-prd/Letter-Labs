@@ -151,10 +151,14 @@ pocket. Fixed: default is now 3.0 and `--seat-depth` / `--seat-land` /
 the count must collapse back to the baseline at `height - acrylic`:
 
 ```
-from z=27.60 :  88 rings/layer   <- ramp begins (shoulder - land - ramp)
-from z=35.10 :  160 rings/layer  <- full pocket wall
-from z=37.20 :   60 rings/layer  <- lip only: 40 - 3 = 3 mm pocket
+from z=27.90 :  88 rings/layer   <- ramp begins (shoulder - land - ramp)
+from z=35.40 : 160 rings/layer   <- full pocket wall
+from z=37.50 :  60 rings/layer   <- lip only
 ```
+
+The shoulder sits at `top - 3`. With the ceil layer rule a 40 mm job is 134 layers,
+so `top = 40.20` and the shoulder is 37.20; the pocket is still exactly 3 mm for a
+3 mm sheet. These are revision-2 numbers.
 
 ## New flag: --max-area (layout-frame exclusion)
 

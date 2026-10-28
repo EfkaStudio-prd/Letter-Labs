@@ -54,8 +54,8 @@ loud, do not present it as ready.
 
 | # | Print | Why | Expected |
 |---|---|---|---|
-| D1 | `TEST4_BALI_10mm_smoke.gcode` | proves the machine accepts this dialect: header, pre-side frame, layer timing | 33 layers, 69 min, 33 m |
-| D2 | `TEST2_BALI_40mm.gcode` | the real job | 133 layers, 333 min, 161 m |
+| D1 | `TEST4_BALI_10mm_smoke.gcode` | proves the machine accepts this dialect: header, pre-side frame, layer timing | 34 layers, 71 min, 34 m |
+| D2 | `TEST2_BALI_40mm.gcode` | the real job | 134 layers, 336 min, 162 m |
 | D3 | `TEST3_WELCOME_30mm.gcode` | colour switch only after C1/A8 are settled | 100 layers, 2 tools |
 
 ---
