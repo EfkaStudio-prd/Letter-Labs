@@ -125,8 +125,9 @@ work/lettergcode/                  the engine
 
 docs/
   VALIDATION_REPORT.md             the measured evidence
-  DIALECT_CORPUS.md                the dialect derived from 13 real exports
+  DIALECT_CORPUS.md                the dialect derived from 14 real exports
   PHYSICAL_RUN.md                  a vendor export and its real printed part
+  ZCCAD_CRASH.md                   why the vendor app force-closes on `get path`
   MANUAL_MAP.md                    vendor manual -> field -> INI key -> CLI flag
   PRODUCTION_CHECKLIST.md          pre-flight list before sending to the machine
 
@@ -186,3 +187,8 @@ Dialect and parameter names were recovered from the shipped vendor artifacts:
 No vendor binary, DLL, licence dongle file, or vendor G-code export is
 redistributed in this repository. Only our own source, our own documentation, and
 trivial test geometry are committed.
+
+Field names from the vendor's INI and the managed stack traces quoted in
+`docs/ZCCAD_CRASH.md` are included as interface documentation — they are what any
+operator can read out of the shipped `GcodePara.ini` and the Windows application
+event log.

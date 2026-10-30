@@ -1,20 +1,25 @@
-# Dialect derived from 13 real exports
+# Dialect derived from 14 real exports
 
 A dialect is not "the shape of one file". It is what every real export agrees on.
 This document records the measurement, the invariants that fell out of it, and the
-three defects it exposed in the generator.
+defects it exposed in the generator.
 
 Reproduce with:
 
 ```bash
-python work/corpus_audit.py work/corpus                       # per-file breakdown
-python .qoder/skills/letterlab-skill/scripts/dialect_check.py --corpus work/corpus
+# against your own folder of vendor exports
+python .qoder/skills/letterlab-skill/scripts/corpus_audit.py  DIR
+python .qoder/skills/letterlab-skill/scripts/dialect_check.py --corpus DIR --test JOB.gcode
 ```
+
+The vendor exports themselves are **not** in this repository (see `README.md`
+→ Provenance), so reproduce by pointing `--corpus` at a folder of exports you
+obtained from your own machine.
 
 ## The corpus
 
-13 files supplied as known-good exports. `5.gcode`, `5 (1).gcode` and `5 (2).gcode`
-are byte-identical (md5 `e5cd7abb4cc5af4c6c4f93c281ddfdb6`), so there are 11
+14 files supplied as known-good exports. `5.gcode`, `5 (1).gcode` and `5 (2).gcode`
+are byte-identical (md5 `e5cd7abb4cc5af4c6c4f93c281ddfdb6`), so there are 12
 distinct files.
 
 | File | Layers | Z range | Layer h | Tools | Footprint mm | Path | Distinct line shapes |
