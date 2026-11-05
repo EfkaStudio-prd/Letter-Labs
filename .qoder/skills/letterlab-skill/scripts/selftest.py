@@ -13,14 +13,20 @@ silently produce a bad print:
   T8  the 3D simulator re-parses our own output into the right layer/tool set
   T10 the simulator honours the modal F word when estimating print time
   T9  the PNG writer emits a real, decodable PNG
+  T13 --family universal (Marlin): M83 present, no vendor markers, bed-honest
+      XY, layer markers match H/L and the E word equals path*w*h/area per move
+  T14 style templates: shipped JSONs load, explicit CLI values win
+  T15 the interactive HTML viewer writes a self-contained webgl file
 
   python selftest.py            # all tests
   python selftest.py --quick    # skip the slow golden regression (T6/T7)
 """
 from __future__ import annotations
 
+import argparse
 import math
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -405,6 +411,160 @@ def test_png_writer(tmp):
           "chunks=%s crc=%s idat=%s" % (tags, crc_ok, idat_ok))
 
 
+def test_universal_family(tmp):
+    """T13 structural gates for --family universal output (Marlin dialect)."""
+    if not REPO:
+        skip("T13 universal family gates", "no lettergcode engine in reach")
+        return
+    out = os.path.join(tmp, "selftest_universal.gcode")
+    layer = 0.3
+    height = 50.0
+    if _gen_args(out, ["--family", "universal", "--profile", "bambu-generic",
+                       "--fit-bed",
+                       "--height", str(height), "--layer", str(layer)]) != 0:
+        check("T13 universal family gates", False, "generate failed")
+        return
+    want_layers = int(height / layer) + 1
+    m83 = 0
+    banned = 0
+    layer_markers = 0
+    e_sum = 0.0
+    path_sum = 0.0
+    xy_oob = 0
+    prev = (0.0, 0.0)
+    x = y = 0.0
+    with open(out, "r", encoding="ascii", errors="replace") as fh:
+        for raw in fh:
+            s = raw.strip()
+            if not s:
+                continue
+            if s.startswith(";"):
+                if s.startswith(";LAYER:"):
+                    layer_markers += 1
+                if "extruder switch" in s.lower():
+                    banned += 1
+                continue
+            up = s.split(";", 1)[0].strip().upper()
+            if up == "M83":
+                m83 += 1
+                continue
+            if up == "M82":
+                banned += 1             # universal files must stay M83-only
+                continue
+            m = re.match(r"^(G0|G1)\b", up)
+            if not m:
+                continue
+            fx = re.search(r"\sX([-\d.]+)", up)
+            fy = re.search(r"\sY([-\d.]+)", up)
+            fe = re.search(r"\sE(-?[\d.]+)", up)
+            if fx: x = float(fx.group(1))
+            if fy: y = float(fy.group(1))
+            if fe and (fx or fy):
+                # M83: the E word on a printing move is that move's filament
+                # delta, so the honesty check is exact - no state to track.
+                e_sum += max(float(fe.group(1)), 0.0)
+                path_sum += math.hypot(x - prev[0], y - prev[1])
+                if not (0.01 <= x <= 256.0 and 0.01 <= y <= 256.0):
+                    xy_oob += 1
+            if fx or fy:
+                prev = (x, y)
+    # E per path mm for the bambu wall width 1.2 / layer 0.3 on 1.75 mm PLA:
+    # 1.2*0.3/(pi*0.875**2) = 0.149680...
+    e_mm = 1.2 * layer / (math.pi * (1.75 / 2.0) ** 2)
+    checks = [
+        ("M83 once", m83 == 1, "M83=%d" % m83),
+        ("no vendor markers", banned == 0, "switch/abs-E=%d" % banned),
+        ("layer markers == int(H/L)+1", layer_markers == want_layers,
+         "markers=%d want=%d" % (layer_markers, want_layers)),
+        ("no out-of-bed XY", xy_oob == 0, "oob=%d" % xy_oob),
+        ("E honesty ~ path*w*h/Af",
+         path_sum > 1000 and abs(e_sum - path_sum * e_mm) /
+         max(e_sum, 1.0) < 0.02,
+         "E=%.1f mm for %.0f mm path" % (e_sum, path_sum)),
+    ]
+    bad = [n for n, ok2, _d in checks if not ok2]
+    check("T13 universal family gates", not bad,
+          "; ".join("%s[%s]" % (n, "ok" if ok2 else d)
+                    for n, ok2, _d in checks))
+
+
+def test_templates(tmp):
+    """T14 template loader: every shipped template parses and CLI wins."""
+    if not REPO:
+        skip("T14 template loader/contract", "no lettergcode engine in reach")
+        return
+    try:
+        sys.path.index(os.path.join(REPO, "work"))
+    except ValueError:
+        sys.path.append(os.path.join(REPO, "work"))
+    from lettergcode import templates as T
+    names = sorted(f for f in os.listdir(os.path.join(REPO, "work", "templates"))
+                   if f.endswith(".json"))
+    ok = bool(names)
+    detail = "%d templates: %s" % (len(names), ", ".join(names))
+    for n in names:
+        try:
+            data, path = T.load_template(n[:-5])
+        except SystemExit as exc:
+            ok = False
+            detail += " [LOAD FAIL %s: %s]" % (n, exc)
+            continue
+        if "name" not in data and "title" not in data:
+            ok = False
+            detail += " [%s: no name/title]" % n
+    # order contract: explicit CLI value beats the template
+    ns = argparse.Namespace(height=None, layer=None, width=None, passes=None,
+                            spacing=None, speed=None, first_speed=None,
+                            pre_passes=None, seat_w=None, seat_depth=None,
+                            seat_land=None, seat_ramp=None, min_area=None,
+                            max_area=None, infill=44.0, infill_pattern=None,
+                            solid_bottom=None, solid_top=None, skirt_lines=None,
+                            skirt_gap=None, brim=None, scale=None,
+                            profile=None, family="universal", bands=None,
+                            glue=None, no_multitool=False, no_hem=False)
+    try:
+        T.apply_template(ns, {"infill": 12.0, "family": "zccad",
+                              "glue": [1], "fill": True})
+        order_ok = (ns.infill == 44.0 and ns.family == "universal"
+                    and ns.glue == "1"
+                    and ns.fill is True)
+    except Exception as exc:                       # noqa: BLE001
+        order_ok = False
+        detail += " [apply crashed: %r]" % exc
+    check("T14 templates parse + CLI-typed wins", ok and order_ok, detail)
+
+
+def test_html_writer(tmp):
+    """T15 the interactive viewer writer produces a self-contained HTML file."""
+    if not REPO:
+        skip("T15 HTML viewer writer", "no gcode3d module in reach")
+        return
+    import gcode3d
+    src = os.path.join(tmp, "tiny_uni.gcode")
+    # minimal universal-dialect job: G90 XYZ + M83 relative E
+    body = ["G21", "G90", "M83", ";LAYER:0",
+            "G0 F15000 X10 Y10",
+            "G1 F3000 X110 Y10 E14.968", "G1 X110 Y110 E29.936",
+            "G1 X10 Y110 E44.904", "G1 X10 Y10 E59.872"]
+    _write(src, "\n".join(body) + "\n")
+    tp = gcode3d.Toolpath(src, bead_width=1.2)
+    st = tp.stats()
+    html = os.path.join(tmp, "selftest_viewer.html")
+    from gcode_html import write_viewer
+    write_viewer(tp, st, html, (256, 256), cap=4000, width=1.2,
+                 name="selftest")
+    with open(html, "rb") as fh:
+        blob = fh.read()
+    ok = (blob[:15] == b"<!DOCTYPE html>"
+          and b"<canvas" in blob and b"getContext" in blob
+          and b"</html>" in blob
+          and len(blob) < 2 * 1024 * 1024)
+    check("T15 HTML viewer self-contained", ok,
+          "%d bytes, canvas=%s close=%s" % (len(blob),
+                                            b"<canvas" in blob,
+                                            b"</html>" in blob))
+
+
 def main(argv):
     import tempfile
     quick = "--quick" in argv
@@ -430,6 +590,9 @@ def main(argv):
         test_no_zero_temp(tmp)
         test_glue_mapping()
         test_png_writer(tmp)
+        test_universal_family(tmp)
+        test_templates(tmp)
+        test_html_writer(tmp)
     failed = [n for n, ok, _ in RESULTS if not ok]
     print("\n%d/%d checks passed" % (len(RESULTS) - len(failed), len(RESULTS)))
     if SKIPPED:

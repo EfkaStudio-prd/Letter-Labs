@@ -11,13 +11,22 @@ usage:
   python gcode3d.py FILE.gcode [--out preview.png] [--width 1.2]
                               [--yaw 45] [--elev 24] [--scale auto]
                               [--tools 0,1] [--stats] [--max-seg 1500000]
+                              [--html viewer.html] [--bed 256,256]
+                              [--max-seg-html 140000]
 
 Colour is per extruder (T number), brightness is per Z, so a wrong colour band
 or a layer that should not be there is visible immediately.
+
+--html writes a self-contained interactive WebGL viewer instead (single file,
+orbits with the mouse, zooms with the wheel, scrubs layers, plays the build-up
+and shows the per-tool legend) - the Aspire-style "see it before it prints"
+step for people who do not want a screenshot round-trip.  The bed outline is
+taken from --bed or sniffed from the '; profile:' comment in universal files.
 """
 from __future__ import annotations
 
 import math
+import os
 import re
 import struct
 import sys
@@ -61,7 +70,10 @@ class Toolpath:
         self._x = self._y = self._z = 0.0
         self._e = 0.0            # absolute E counter since last G92
         self._tool = 0
-        self._rel = False
+        self._rel = False        # G90/G91: absolute/relative XYZ
+        self._erel = False       # M82/M83: absolute/relative E (Marlin
+                                 # keeps G90/G91 away from E when M82/M83
+                                 # was issued; G90/G91 touch both)
         self._f = 0.0            # modal feedrate, mm/min
         self._trunc = max_seg
         self._parse(path)
@@ -93,11 +105,11 @@ class Toolpath:
                 line = raw.strip()
                 if not line or line[0] == ";":
                     continue
-                if line.startswith("M82"):
-                    self._rel = False
-                    continue
                 if line.startswith("M83"):
-                    self._rel = True
+                    self._erel = True
+                    continue
+                if line.startswith("M82"):
+                    self._erel = False
                     continue
                 m = re.match(r"^T(\d+)$", line)
                 if m:
@@ -113,8 +125,10 @@ class Toolpath:
                         or line.startswith("G00") or line.startswith("G01")):
                     if line.startswith("G90"):
                         self._rel = False
+                        self._erel = False
                     elif line.startswith("G91"):
                         self._rel = True
+                        self._erel = True
                     continue
                 self.tools.add(self._tool)
                 v = dict((k, float(x)) for k, x in RX.findall(line))
@@ -126,7 +140,7 @@ class Toolpath:
                 nz = self._z + v["Z"] if self._rel and "Z" in v else v.get("Z", self._z)
                 de = 0.0
                 if "E" in v:
-                    if self._rel:
+                    if self._erel:
                         de = v["E"]
                         # absolute counter keeps running through relative moves
                         self._e += v["E"]
@@ -456,6 +470,35 @@ def arg(argv, name, default=None):
     return default
 
 
+# ----------------------------------------------------------------- html viewer
+def sniff_bed(path):
+    """Read a bed size from '; profile: NAME 256x256'-style comments."""
+    pat = re.compile(r"(\d+(?:\.\d+)?)\s*[xX]\s*(\d+(?:\.\d+)?)")
+    try:
+        with open(path, "r", encoding="ascii", errors="replace") as fh:
+            for i, line in enumerate(fh):
+                if i > 60:
+                    break
+                stripped = line.strip()
+                if not stripped.startswith(";"):
+                    continue
+                low = stripped.lower()
+                if "bed" in low or "profile" in low or "machine" in low:
+                    m = pat.search(stripped)
+                    if m:
+                        return (float(m.group(1)), float(m.group(2)))
+    except OSError:
+        pass
+    return None
+
+
+def write_html(tp, stats, out_path, bed, cap, width, name):
+    """Thin wrapper: the interactive viewer lives in gcode_html.py."""
+    from gcode_html import write_viewer
+    return write_viewer(tp, stats, out_path, bed, cap=cap, width=width,
+                        name=name)
+
+
 def main(argv):
     if not argv or "--help" in argv or argv[0] in ("-h",):
         print(__doc__)
@@ -478,6 +521,22 @@ def main(argv):
     for k, v in st.items():
         print(f"  {k:20s}: {v}")
     if "--stats" in argv:
+        return 0
+    if arg(argv, "--html"):
+        bed = None
+        bed_arg = arg(argv, "--bed")
+        if bed_arg:
+            a, b_ = str(bed_arg).split(",")
+            bed = (float(a), float(b_))
+        else:
+            bed = sniff_bed(src)
+        cap = int(arg(argv, "--max-seg-html", "140000"))
+        html = arg(argv, "--html")
+        write_html(tp, st, html, bed, cap, width, os.path.basename(src))
+        print("wrote", html)
+        if tp.truncated:
+            print("NOTE: html decimated to %d vertices (--max-seg-html to raise)"
+                  % (cap * 2))
         return 0
 
     W, H = 1360, 470

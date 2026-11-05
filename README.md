@@ -1,13 +1,37 @@
 # Letter-Labs
 
-G-code generator for **3D printed letter shells** (*huruf timbul*) that reproduces
-the exact output dialect of **ZCCAD** (`3D Print Software S528`), the software
-shipped with Taesin / DongGuan ZhenCai letter printers.
+G-code generator for **3D printed letter shells** (*huruf timbul*) and general FDM
+shapes.  Outputs two dialect families from a single vector (DXF) input:
 
-The point is to produce a print-ready `.gcode` **without opening the vendor
-application**, so a job can be driven from a script, a web app, or an agent.
+1. **`zccad`** (default): exact vendor dialect of **ZCCAD** (`3D Print Software S528`)
+   for Taesin / Iguana / DongGuan ZhenCai letter printers.
+2. **`universal`**: standard modern Marlin G-code (`M83` relative E, physical retraction,
+   honest volumetric flow, layer markers) for **generic FDM printers** like **Bambu Lab**
+   (X1C, P1S, A1) and Marlin machines.
+
+Includes an **interactive 3D WebGL preview** before execution (single-file HTML, orbit/zoom,
+layer slider, build animation, tool toggles, bed outline, stats) and a **style template system**
+anchored on real hardware print evidence.
 
 Engine: pure Python standard library. No pip installs, no numpy, no shapely.
+
+---
+
+## Universal FDM & Bambu Lab Mode
+
+```bash
+# Generate G-code for Bambu Lab with interactive 3D preview:
+python .qoder/skills/letterlab-skill/scripts/letterlab.py job \
+  --dxf LETTER.dxf --out out/A_40mm.gcode \
+  --family universal --profile bambu-generic \
+  --template huruf_timbul_alas_k \
+  --preview out/A_40mm_3d.png \
+  --html out/A_40mm.html
+
+# Open out/A_40mm.html in any browser to inspect the 3D letter layer-by-layer before printing!
+```
+
+See [docs/UNIVERSAL.md](docs/UNIVERSAL.md) and [docs/TEMPLATES.md](docs/TEMPLATES.md).
 
 ---
 

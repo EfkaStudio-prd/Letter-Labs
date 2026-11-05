@@ -1,0 +1,22 @@
+{
+  "name": "coupon_h8_shelf",
+  "description": "Kupon uji 8 mm (27 layer): dinding 3 garis (line count 2 + inset) dinding 2.8 mm. Uji kualitas dinding dan penempelan sebelum job besar - dari urutan pengujian C500 (LANGKAH 1, JANGAN DLOMPATI).",
+  "family": "universal",
+  "profile": "bambu-generic",
+  "height": 8.0,
+  "layer": 0.3,
+  "width": 1.2,
+  "passes": 2,
+  "spacing": 0.8,
+  "fill": true,
+  "hem": true,
+  "glue": [1],
+  "infill": 0.0,
+  "solid_bottom": 2,
+  "solid_top": 2,
+  "skirt_lines": 2,
+  "skirt_gap": 6.0,
+  "speed": 3000,
+  "first_speed": 1800,
+  "fit_bed": true
+}

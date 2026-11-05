@@ -8,6 +8,7 @@ import time
 
 from .job import Job
 from .params import Params
+from .templates import apply_template, load_template
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_INI = os.path.join(os.path.dirname(os.path.dirname(HERE)), "S528", "GcodePara.ini")
@@ -81,7 +82,59 @@ def main(argv=None):
     ap.add_argument("--place", default=None, metavar="X,Y",
                     help="translate the job so its bounding box starts at X,Y")
     ap.add_argument("--offset", default=None, metavar="DX,DY", help="translate the job by DX,DY")
+    # ------------------------------------------------------------- family -----
+    ap.add_argument("--family", default=None, choices=["zccad", "universal"],
+                    help="output family: 'zccad' = vendor-compatible letter "
+                         "shell dialect (default), 'universal' = standard "
+                         "Marlin-class FDM G-code for generic printers "
+                         "(Bambu Lab class). The ZCCAD pipeline is untouched "
+                         "by the universal branch.")
+    ap.add_argument("--profile", default=None, metavar="NAME",
+                    help="universal: machine profile (marlin-generic, "
+                         "bambu-generic, x1c); --bed overrides its size")
+    ap.add_argument("--template", default=None, metavar="NAME",
+                    help="style template JSON (name of a file in "
+                         "work/templates/ or a path). INI -> template -> "
+                         "CLI flags, so typed flags always win")
+    # ---------------------------------------------------------- universal -----
+    ap.add_argument("--infill", type=float, default=None, metavar="PCT",
+                    help="universal: infill density percent, 0 = walls only")
+    ap.add_argument("--infill-pattern", default=None,
+                    choices=["rectilinear", "concentric"],
+                    help="universal: infill style (default rectilinear)")
+    ap.add_argument("--solid-bottom", dest="solid_bottom", type=int, default=None,
+                    metavar="N", help="universal: solid base layers (default 2)")
+    ap.add_argument("--solid-top", dest="solid_top", type=int, default=None,
+                    metavar="N", help="universal: solid top layers (default 2)")
+    ap.add_argument("--skirt-lines", dest="skirt_lines", type=int, default=None,
+                    metavar="N", help="universal: skirt loops on layer 0 (default 2)")
+    ap.add_argument("--skirt-gap", dest="skirt_gap", type=float, default=None,
+                    metavar="MM", help="universal: skirt distance from the part")
+    ap.add_argument("--brim", type=float, default=None, metavar="MM",
+                    help="universal: brim width on layer 0, 0 = off")
+    ap.add_argument("--no-multitool", dest="no_multitool", action="store_true",
+                    help="universal: collapse the colour plan to one tool "
+                         "instead of emitting T switches")
+    ap.add_argument("--scale", type=float, default=None, metavar="S",
+                    help="universal: rescale DXF coordinates by S before "
+                         "printing (e.g. 0.5); 0 / omitted leaves size alone")
+    ap.add_argument("--fit-bed", dest="fit_bed", action="store_true",
+                    help="universal: shrink (never grow) so the part + skirt "
+                         "fits the profile bed; oversized after scaling "
+                         "still fails")
+    ap.add_argument("--bed", default=None, metavar="X,Y",
+                    help="universal: override the profile bed size in mm")
     args = ap.parse_args(argv)
+
+    tpl = None
+    if args.template:
+        tpl, tpl_path = load_template(args.template)
+        print(f"template           : {os.path.basename(tpl_path)}")
+        if tpl.get("description"):
+            print(f"                     {tpl['description']}")
+        apply_template(args, tpl)
+    args.family = args.family or (tpl or {}).get("family") or "zccad"
+    args.profile = args.profile or (tpl or {}).get("profile")
 
     if not os.path.exists(args.dxf):
         ap.error(f"DXF not found: {args.dxf}")
@@ -127,6 +180,8 @@ def main(argv=None):
     par.reverse_zones = args.reverse_zones
 
     if args.show_params:
+        print(f"family             : {args.family}"
+              + (f"  profile: {args.profile}" if args.family == "universal" else ""))
         print(f"ini                : {args.ini}")
         print(f"height / layer     : {par.let.dbHeightShell} / {par.let.dbHeightLayer}"
               f"  -> {par.layer_count} layers")
@@ -161,6 +216,54 @@ def main(argv=None):
     job = Job(par, args.dxf, cell=args.cell, offset=offset, place=place,
               fill=args.fill, hem=not args.no_hem,
               min_area=args.min_area, max_area=args.max_area).load()
+
+    if args.family == "universal":
+        from .machines import get_profile
+        from .universal import UniversalOpts, render_universal
+        profile = get_profile(args.profile or "bambu-generic")
+        if args.bed:
+            bx, by = _pair(args.bed)
+            profile.bed_x, profile.bed_y = float(bx), float(by)
+        # typed mm/min speeds move the profile, matching the zccad overrides
+        if args.speed is not None:
+            profile.work_speed = int(args.speed)
+        if args.first_speed is not None:
+            profile.first_layer_speed = int(args.first_speed)
+        opts = UniversalOpts(
+            infill_density=(args.infill if args.infill is not None else 15.0),
+            infill_pattern=(args.infill_pattern or "rectilinear"),
+            solid_bottom=(args.solid_bottom if args.solid_bottom is not None
+                          else 2),
+            solid_top=(args.solid_top if args.solid_top is not None else 2),
+            skirt_lines=(args.skirt_lines if args.skirt_lines is not None
+                         else 2),
+            skirt_gap=(args.skirt_gap if args.skirt_gap is not None else 6.0),
+            brim=(args.brim or 0.0),
+            multitool=not args.no_multitool,
+            scale=(args.scale or 0.0),
+            fit_bed=bool(args.fit_bed),
+            center_bed=True)
+        rep = render_universal(job, profile, out, opts,
+                               progress=lambda i, n: print(
+                                   f"\r  layer {i}/{n}", end="",
+                                   file=sys.stderr))
+        if sys.stderr.isatty():
+            print("", file=sys.stderr)
+        n = sum(1 for _ in open(out, "r", encoding="ascii", errors="replace"))
+        print(f"{out}")
+        print(f"  contours : {len(job.rings)}")
+        print(f"  layers   : {par.layer_count}")
+        print(f"  lines    : {n}")
+        print(f"  bed      : {profile.bed_x} x {profile.bed_y} mm"
+              f"  ({profile.name})")
+        for t, ln in sorted(rep["len_by_tool"].items()):
+            print(f"  T{t}        : path {ln} m,"
+                  f" filament {rep['e_by_tool'].get(t, 0.0)} m")
+        print(f"  estimate : {rep['est_time_min']} min   "
+              f"(first run - verify on the machine)")
+        print(f"  time     : {time.time() - t0:.1f} s")
+        return 0
+
     job.render(out, pre_side=not args.no_pre_side,
                first_layer_fill=args.first_layer_fill,
                fill_spacing=args.fill_spacing,

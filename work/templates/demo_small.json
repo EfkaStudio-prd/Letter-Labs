@@ -1,0 +1,21 @@
+{
+  "name": "demo_small",
+  "description": "Demo universal terkecil: huruf 20 mm, infill 15 persen, untuk cek mesin pertama kali. Dirancang lulus di bed 256 mm tanpa komplain.",
+  "family": "universal",
+  "profile": "bambu-generic",
+  "height": 20.0,
+  "layer": 0.3,
+  "width": 1.0,
+  "passes": 1,
+  "spacing": 0.6,
+  "fill": true,
+  "hem": true,
+  "glue": [1],
+  "infill": 15.0,
+  "infill_pattern": "rectilinear",
+  "solid_bottom": 2,
+  "solid_top": 2,
+  "skirt_lines": 2,
+  "skirt_gap": 6.0,
+  "fit_bed": true
+}

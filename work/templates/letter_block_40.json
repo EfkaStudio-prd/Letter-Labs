@@ -1,0 +1,22 @@
+{
+  "name": "letter_block_40",
+  "description": "Blok huruf solid 40 mm: dinding 1.2 (kontur + inset 0.8) + infill 15 persen. Starter untuk marlin-generic 300x300.",
+  "family": "universal",
+  "profile": "marlin-generic",
+  "height": 40.0,
+  "layer": 0.3,
+  "width": 1.2,
+  "passes": 1,
+  "spacing": 0.8,
+  "fill": true,
+  "hem": true,
+  "glue": [1],
+  "infill": 15.0,
+  "infill_pattern": "rectilinear",
+  "solid_bottom": 2,
+  "solid_top": 2,
+  "skirt_lines": 2,
+  "skirt_gap": 6.0,
+  "speed": 3600,
+  "first_speed": 1800
+}

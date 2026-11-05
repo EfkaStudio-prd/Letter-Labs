@@ -3,12 +3,16 @@
   python letterlab.py job --dxf LETTER.dxf --out JOB.gcode [--ref VENDOR.gcode]
                           [--height 50] [--layer 0.3] [--passes 1] [--fill]
                           [--bands 10,30,10] [--glue 1,2,1] [--seat-w 3.2] ...
+                          [--family universal --profile bambu-generic --html out.html]
 
 Runs, in order:
   1. generate  - the lettergcode engine writes ZCCAD-dialect G-code
+                 (default family=zccad) or standard Marlin family G-code for
+                 any generic FDM / Bambu Lab class printer (--family universal)
   2. validate  - structural gates against a vendor reference (needs --ref)
   3. audit     - per-layer ring/length diff (needs --ref)
   4. preview   - 3D bead simulation rendered to PNG from the emitted G-code
+                 (--html adds the interactive build-up viewer, single file)
 
 The engine is never imported by path guesswork: LETTERLAB_ENGINE wins, otherwise
 the nearest ancestor containing work/lettergcode is used.
@@ -69,7 +73,14 @@ def cmd_generate(a, rest=None):
                       ("--seat-land", a.seat_land), ("--seat-ramp", a.seat_ramp),
                       ("--pre-passes", a.pre_passes),
                       ("--place", a.place), ("--offset", a.offset),
-                      ("--cell", a.cell), ("--fill-spacing", a.fill_spacing)):
+                      ("--cell", a.cell), ("--fill-spacing", a.fill_spacing),
+                      ("--family", a.family), ("--profile", a.profile),
+                      ("--template", a.template),
+                      ("--infill", a.infill), ("--infill-pattern", a.infill_pattern),
+                      ("--solid-bottom", a.solid_bottom), ("--solid-top", a.solid_top),
+                      ("--skirt-lines", a.skirt_lines), ("--skirt-gap", a.skirt_gap),
+                      ("--brim", a.brim), ("--scale", a.scale),
+                      ("--bed", getattr(a, "bed", None))):
         if val is not None and val != "":
             cli += [flag, str(val)]
     if a.passes is not None:
@@ -78,7 +89,9 @@ def cmd_generate(a, rest=None):
                      ("--reverse-zones", a.reverse_zones),
                      ("--no-pre-side", a.no_pre_side),
                      ("--first-layer-fill", a.first_layer_fill),
-                     ("--show-params", a.show_params)):
+                     ("--show-params", a.show_params),
+                     ("--no-multitool", getattr(a, "no_multitool", False)),
+                     ("--fit-bed", getattr(a, "fit_bed", False))):
         if on:
             cli.append(flag)
     print("$ " + " ".join(cli))
@@ -104,7 +117,19 @@ def cmd_preview(a):
             "--yaw", str(a.yaw), "--elev", str(a.elev)]
     if a.stats:
         argv.append("--stats")
-    return run(argv).returncode
+    rc = run(argv).returncode
+    # Interactive WebGL viewer (--html) needs its own gcode3d invocation:
+    # the gcode3d main returns right after writing the html file.
+    html = getattr(a, "html", None)
+    if html:
+        argv2 = ["python", os.path.join(HERE, "gcode3d.py"), a.gcode,
+                 "--html", html, "--width", str(a.width or 1.2)]
+        bed = getattr(a, "bed", None)
+        if bed:
+            argv2 += ["--bed", bed]
+        rc_h = run(argv2).returncode
+        return rc if rc else rc_h
+    return rc
 
 
 def taper_notice(ini_path, height_override=None):
@@ -162,10 +187,13 @@ def cmd_job(a):
     print("\n== 4/4 3D preview")
     rc_p = cmd_preview(argparse.Namespace(gcode=a.out, out=a.preview,
                                           width=a.width, yaw=a.yaw,
-                                          elev=a.elev, stats=False))
+                                          elev=a.elev, stats=False,
+                                          html=getattr(a, "html", None),
+                                          bed=getattr(a, "bed", None)))
     gates.append(("preview rendered", rc_p == 0))
-    notice = taper_notice(a.ini or os.path.join(repo, "S528", "GcodePara.ini"),
-                          a.height)
+    notice = None if getattr(a, "family", "zccad") == "universal" else \
+        taper_notice(a.ini or os.path.join(repo, "S528", "GcodePara.ini"),
+                     a.height)
     print("\n===== LETTERLAB REPORT =====")
     print("  gcode   : " + os.path.abspath(a.out))
     if a.preview:
@@ -175,8 +203,13 @@ def cmd_job(a):
     if notice:
         print("\n  NOTICE: " + notice)
     if not a.ref:
-        print("  NOTE: no --ref supplied, so the output is UNVERIFIED against "
-              "a vendor export. Attach one before printing.")
+        if getattr(a, "family", "zccad") == "universal":
+            print("  NOTE: universal output is verified by the structural "
+                  "selftest and the 3D preview; attach --ref (a vendor or "
+                  "earlier universal G-code) for a head-to-head audit.")
+        else:
+            print("  NOTE: no --ref supplied, so the output is UNVERIFIED "
+                  "against a vendor export. Attach one before printing.")
     return 0 if all(g for _, g in gates) else 1
 
 
@@ -226,6 +259,37 @@ def build(argv):
         p.add_argument("--no-pre-side", dest="no_pre_side", action="store_true")
         p.add_argument("--first-layer-fill", dest="first_layer_fill", action="store_true")
         p.add_argument("--show-params", dest="show_params", action="store_true")
+        # ---- family switch: vendor dialect vs universal Marlin ----
+        p.add_argument("--family", default=None, choices=["zccad", "universal"],
+                       help="zccad (default): vendor ZCCAD dialect for the "
+                            "Taesin/Iguana letter printer. universal: standard "
+                            "Marlin G-code (M83, retraction, markers) for "
+                            "generic FDM, e.g. a Bambu Lab class machine")
+        p.add_argument("--profile", default=None,
+                       help="universal family: marlin-generic | bambu-generic | x1c")
+        p.add_argument("--template", default=None,
+                       help="style template JSON from work/templates/ (applies "
+                            "to both families; explicit flags still win)")
+        # ---- universal family options ----
+        p.add_argument("--infill", default=None, metavar="PCT",
+                       help="universal: infill density percent")
+        p.add_argument("--infill-pattern", dest="infill_pattern", default=None,
+                       help="universal: rectilinear | concentric")
+        p.add_argument("--solid-bottom", dest="solid_bottom", default=None,
+                       help="universal: solid bottom layers")
+        p.add_argument("--solid-top", dest="solid_top", default=None,
+                       help="universal: solid top layers")
+        p.add_argument("--skirt-lines", dest="skirt_lines", default=None)
+        p.add_argument("--skirt-gap", dest="skirt_gap", default=None)
+        p.add_argument("--brim", default=None, metavar="MM")
+        p.add_argument("--no-multitool", dest="no_multitool", action="store_true",
+                       help="universal: ignore colour bands, print with T0 only")
+        p.add_argument("--scale", default=None, metavar="S",
+                       help="universal: multiply DXF coordinates (0 = unchanged)")
+        p.add_argument("--fit-bed", dest="fit_bed", action="store_true",
+                       help="universal: shrink (never grow) the part to fit the bed")
+        p.add_argument("--bed", default=None, metavar="X,Y",
+                       help="universal: override the bed size from the profile")
 
     g = sub.add_parser("generate", help="run the lettergcode engine")
     add_gen(g)
@@ -248,12 +312,20 @@ def build(argv):
     q.add_argument("--yaw", type=float, default=45)
     q.add_argument("--elev", type=float, default=24)
     q.add_argument("--stats", action="store_true")
+    q.add_argument("--html", default=None,
+                   help="also write the interactive WebGL HTML viewer to this path")
+    q.add_argument("--bed", default=None, metavar="X,Y",
+                   help="bed size for the HTML viewer if the G-code header "
+                        "does not state one")
     q.set_defaults(fn=cmd_preview)
 
     j = sub.add_parser("job", help="generate + validate + audit + preview")
     add_gen(j)
     j.add_argument("--ref", default=None, help="vendor G-code to verify against")
     j.add_argument("--preview", default=None, help="PNG path for the 3D preview")
+    j.add_argument("--html", default=None,
+                   help="also write the interactive WebGL HTML viewer here "
+                        "(letters build layer-by-layer in the browser)")
     j.add_argument("--yaw", type=float, default=45)
     j.add_argument("--elev", type=float, default=24)
     j.set_defaults(fn=cmd_job)
@@ -263,10 +335,13 @@ def build(argv):
 
 def _abs(a):
     """The engine runs with cwd=<repo>/work, so every user path must be absolute."""
-    for name in ("dxf", "out", "ini", "ref", "preview"):
+    for name in ("dxf", "out", "ini", "ref", "preview", "html", "template"):
         v = getattr(a, name, None)
-        if v:
-            setattr(a, name, os.path.abspath(v))
+        if not v:
+            continue
+        if name == "template" and not (os.sep in v or v.lower().endswith(".json")):
+            continue      # bare template name; the engine searches work/templates
+        setattr(a, name, os.path.abspath(v))
     return a
 
 

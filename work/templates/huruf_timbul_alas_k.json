@@ -1,0 +1,21 @@
+{
+  "name": "huruf_timbul_alas_k",
+  "description": "Huruf timbul 3D dengan alas solid 3-layer (0.9 mm) sample dari TES IM (huruf K), settingan kecepatan/suhu fix dari file 5 (F3000/1800, 220C), acuan jalur rapih dari arr.",
+  "family": "universal",
+  "profile": "bambu-generic",
+  "height": 40.0,
+  "layer": 0.3,
+  "width": 1.2,
+  "passes": 2,
+  "spacing": 0.8,
+  "solid_bottom": 3,
+  "solid_top": 0,
+  "infill": 0.0,
+  "infill_pattern": "rectilinear",
+  "skirt_lines": 2,
+  "skirt_gap": 6.0,
+  "fit_bed": true,
+  "glue": [1],
+  "speed": 3000,
+  "first_speed": 1800
+}
