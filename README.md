@@ -1,7 +1,8 @@
 # Letter-Labs
 
 G-code generator for **3D printed letter shells** (*huruf timbul*) and general FDM
-shapes.  Outputs two dialect families from a single vector (DXF) input:
+shapes.  Outputs two dialect families from either **2D vector outlines (DXF)** or
+**3D meshes (STL)**:
 
 1. **`zccad`** (default): exact vendor dialect of **ZCCAD** (`3D Print Software S528`)
    for Taesin / Iguana / DongGuan ZhenCai letter printers.
@@ -9,15 +10,40 @@ shapes.  Outputs two dialect families from a single vector (DXF) input:
    honest volumetric flow, layer markers) for **generic FDM printers** like **Bambu Lab**
    (X1C, P1S, A1) and Marlin machines.
 
-Includes an **interactive 3D WebGL preview** before execution (single-file HTML, orbit/zoom,
-layer slider, build animation, tool toggles, bed outline, stats) and a **style template system**
+Includes pure Python **3D STL slicing** (binary & ASCII, zero third-party packages), an
+**interactive 3D WebGL preview** before execution (single-file HTML, orbit/zoom,
+layer slider, build animation, tool toggles, bed outline, stats), and a **style template system**
 anchored on real hardware print evidence.
 
 Engine: pure Python standard library. No pip installs, no numpy, no shapely.
 
 ---
 
-## Universal FDM & Bambu Lab Mode
+## 3D STL Import & Slicing Mode
+
+Import 3D STL models (letters, hollow shells, signage bodies) directly without CAD/slicer software:
+
+```bash
+# 1. 3D STL to Iguana / Taesin letter printer:
+python .qoder/skills/letterlab-skill/scripts/letterlab.py job \
+  --stl LETTER_3D.stl --out out/letter_iguana.gcode \
+  --family zccad \
+  --height 40 --layer 0.3 \
+  --preview out/letter_iguana_3d.png \
+  --html out/letter_iguana.html
+
+# 2. 3D STL to Bambu Lab / Generic FDM (auto-scaled to fit bed if needed):
+python .qoder/skills/letterlab-skill/scripts/letterlab.py job \
+  --stl LETTER_3D.stl --out out/letter_bambu.gcode \
+  --family universal --profile bambu-generic \
+  --fit-bed \
+  --preview out/letter_bambu_3d.png \
+  --html out/letter_bambu.html
+```
+
+---
+
+## Universal FDM & Bambu Lab Mode (from DXF)
 
 ```bash
 # Generate G-code for Bambu Lab with interactive 3D preview:

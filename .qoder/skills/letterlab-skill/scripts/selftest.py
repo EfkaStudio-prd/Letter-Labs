@@ -565,6 +565,77 @@ def test_html_writer(tmp):
                                             b"</html>" in blob))
 
 
+def test_stl_slicer(tmp):
+    """T16 STL parser and slicer: binary + ASCII STL, slice-at-z, dual dialects."""
+    if not REPO:
+        skip("T16 3D STL slicer", "no repo in reach")
+        return
+    import struct
+    from lettergcode.stl import read_stl, slice_mesh_at_z, STLJob
+    from lettergcode.params import Params
+    from lettergcode.machines import get_profile
+    from lettergcode.universal import UniversalOpts
+
+    b_stl = os.path.join(tmp, "box_bin.stl")
+    a_stl = os.path.join(tmp, "box_asc.stl")
+
+    v = [
+        (0.0, 0.0, 0.0), (20.0, 0.0, 0.0), (20.0, 20.0, 0.0), (0.0, 20.0, 0.0),
+        (0.0, 0.0, 10.0), (20.0, 0.0, 10.0), (20.0, 20.0, 10.0), (0.0, 20.0, 10.0)
+    ]
+    faces = [
+        (0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7),
+        (0, 1, 5), (0, 5, 4), (2, 3, 7), (2, 7, 6),
+        (3, 0, 4), (3, 4, 7), (1, 2, 6), (1, 6, 5)
+    ]
+    with open(b_stl, "wb") as f:
+        f.write(b"LetterLab test box binary STL" + b"\x00" * 51)
+        f.write(struct.pack("<I", len(faces)))
+        for i1, i2, i3 in faces:
+            v1, v2, v3 = v[i1], v[i2], v[i3]
+            f.write(struct.pack("<12fH", 0.0, 0.0, 0.0,
+                                v1[0], v1[1], v1[2],
+                                v2[0], v2[1], v2[2],
+                                v3[0], v3[1], v3[2], 0))
+
+    with open(a_stl, "w", encoding="utf-8") as f:
+        f.write("solid test\n  facet normal 0 0 1\n    outer loop\n"
+                "      vertex 0 0 0\n      vertex 10 0 0\n      vertex 10 10 0\n"
+                "    endloop\n  endfacet\nendsolid test\n")
+
+    tri_b, b_box = read_stl(b_stl)
+    tri_a, a_box = read_stl(a_stl)
+    rings = slice_mesh_at_z(tri_b, 5.0)
+
+    par = Params()
+    par.let.dbHeightLayer = 0.5
+    par.let.dbHeightShell = 2.0
+    job = STLJob(par, b_stl, fit_bed=False, center_bed=False)
+
+    out_z = os.path.join(tmp, "stl_test.zccad.gcode")
+    job.render_zccad(out_z, pre_side=True)
+
+    out_u = os.path.join(tmp, "stl_test.univ.gcode")
+    pro = get_profile("marlin-generic")
+    opts = UniversalOpts(infill_density=0.0, solid_bottom=2, skirt_lines=1)
+    rep = job.render_universal(pro, out_u, opts)
+
+    with open(out_z) as f:
+        txt_z = f.read()
+    with open(out_u) as f:
+        txt_u = f.read()
+
+    ok = (len(tri_b) == 12 and len(tri_a) == 1 and len(rings) == 1
+          and ";calculatePreSide start" in txt_z
+          and ";G code end" in txt_z
+          and "; LetterLab universal FDM output" in txt_u
+          and "M83" in txt_u
+          and rep["len_by_tool"].get(0, 0) > 0)
+    check("T16 3D STL slicer (binary/ASCII + dual dialects)", ok,
+          "bin=%d tri, asc=%d tri, slice_rings=%d, zccad=%d B, univ=%d B" % (
+              len(tri_b), len(tri_a), len(rings), len(txt_z), len(txt_u)))
+
+
 def main(argv):
     import tempfile
     quick = "--quick" in argv
@@ -593,6 +664,7 @@ def main(argv):
         test_universal_family(tmp)
         test_templates(tmp)
         test_html_writer(tmp)
+        test_stl_slicer(tmp)
     failed = [n for n, ok, _ in RESULTS if not ok]
     print("\n%d/%d checks passed" % (len(RESULTS) - len(failed), len(RESULTS)))
     if SKIPPED:

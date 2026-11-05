@@ -59,7 +59,12 @@ def run(cmd, cwd=None, env=None):
 
 def cmd_generate(a, rest=None):
     repo = engine_dir()
-    cli = ["python", "-m", "lettergcode", "--dxf", a.dxf, "--out", a.out]
+    cli = ["python", "-m", "lettergcode"]
+    if getattr(a, "stl", None):
+        cli += ["--stl", a.stl]
+    elif getattr(a, "dxf", None):
+        cli += ["--dxf", a.dxf]
+    cli += ["--out", a.out]
     if a.ini:
         cli += ["--ini", a.ini]
     else:
@@ -219,7 +224,8 @@ def build(argv):
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def add_gen(p):
-        p.add_argument("--dxf", help="input DXF with the letter outlines")
+        p.add_argument("--dxf", default=None, help="input DXF with the letter outlines")
+        p.add_argument("--stl", default=None, help="input 3D STL file (binary or ASCII)")
         p.add_argument("--out", help="output .gcode path")
         p.add_argument("--ini", default=None, help="GcodePara.ini (default: repo S528\\)")
         p.add_argument("--height", default=None)
@@ -351,11 +357,17 @@ def main(argv=None):
         print(__doc__)
         return 2
     a = _abs(build(argv))
-    if a.cmd in ("generate", "job") and not getattr(a, "dxf", None):
-        print("--dxf is required", file=sys.stderr)
+    has_dxf = bool(getattr(a, "dxf", None))
+    has_stl = bool(getattr(a, "stl", None))
+    if a.cmd in ("generate", "job") and not has_dxf and not has_stl:
+        print("Either --dxf or --stl is required", file=sys.stderr)
         return 2
+    if a.cmd in ("generate", "job") and has_dxf and has_stl:
+        print("Cannot specify both --dxf and --stl", file=sys.stderr)
+        return 2
+    inp = getattr(a, "stl", None) or getattr(a, "dxf", None)
     if a.cmd == "job" and not a.out:
-        a.out = os.path.splitext(os.path.basename(a.dxf))[0] + ".gcode"
+        a.out = os.path.splitext(os.path.basename(inp))[0] + ".gcode"
     if a.cmd == "job" and not a.preview:
         a.preview = os.path.splitext(a.out)[0] + "_3d.png"
     return a.fn(a)

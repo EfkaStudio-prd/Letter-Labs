@@ -512,3 +512,8 @@ def _emit(job, profile, w: UniversalWriter, progress=None):
         if progress:
             progress(li + 1, layer_n)
     w.write_tail(p.layer_z(layer_n - 1))
+    return {
+        "len_by_tool": {t: round(l / 1000.0, 3) for t, l in w.len_by_tool.items()},
+        "e_by_tool": {t: round(e / 1000.0, 3) for t, e in w.e_by_tool.items()},
+        "est_time_min": round(w.time_s / 60.0, 1),
+    }

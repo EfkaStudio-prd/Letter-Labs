@@ -28,7 +28,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(
         prog="lettergcode",
         description="Generate ZCCAD-compatible G-code for 3D letter shells.")
-    ap.add_argument("--dxf", required=True, help="input DXF with the letter outlines")
+    ap.add_argument("--dxf", default=None, help="input DXF with the letter outlines")
+    ap.add_argument("--stl", default=None, help="input 3D STL file (binary or ASCII)")
     ap.add_argument("--out", default=None, help="output .gcode path")
     ap.add_argument("--ini", default=DEFAULT_INI, help="GcodePara.ini to inherit parameters")
     ap.add_argument("--height", type=float, default=None, help="override dbHeightShell (mm)")
@@ -136,9 +137,15 @@ def main(argv=None):
     args.family = args.family or (tpl or {}).get("family") or "zccad"
     args.profile = args.profile or (tpl or {}).get("profile")
 
-    if not os.path.exists(args.dxf):
-        ap.error(f"DXF not found: {args.dxf}")
-    out = args.out or os.path.splitext(args.dxf)[0] + ".gcode"
+    if not args.dxf and not args.stl:
+        ap.error("Either --dxf or --stl must be provided")
+    if args.dxf and args.stl:
+        ap.error("Cannot specify both --dxf and --stl; choose one")
+
+    input_file = args.stl or args.dxf
+    if not os.path.exists(input_file):
+        ap.error(f"Input file not found: {input_file}")
+    out = args.out or os.path.splitext(input_file)[0] + ".gcode"
 
     par = Params.from_ini(args.ini) if os.path.exists(args.ini) else Params()
     if args.height is not None:
@@ -213,6 +220,67 @@ def main(argv=None):
     t0 = time.time()
     place = _pair(args.place)
     offset = _pair(args.offset) or (0.0, 0.0)
+
+    if args.stl:
+        from .stl import STLJob
+        stl_job = STLJob(par, args.stl, scale=(args.scale or 0.0),
+                         offset=offset, place=place,
+                         fit_bed=bool(args.fit_bed), center_bed=True)
+
+        if args.family == "universal":
+            from .machines import get_profile
+            from .universal import UniversalOpts
+            profile = get_profile(args.profile or "bambu-generic")
+            if args.bed:
+                bx, by = _pair(args.bed)
+                profile.bed_x, profile.bed_y = float(bx), float(by)
+            if args.speed is not None:
+                profile.work_speed = int(args.speed)
+            if args.first_speed is not None:
+                profile.first_layer_speed = int(args.first_speed)
+            opts = UniversalOpts(
+                infill_density=(args.infill if args.infill is not None else 0.0),
+                infill_pattern=(args.infill_pattern or "rectilinear"),
+                solid_bottom=(args.solid_bottom if args.solid_bottom is not None else 3),
+                solid_top=(args.solid_top if args.solid_top is not None else 0),
+                skirt_lines=(args.skirt_lines if args.skirt_lines is not None else 2),
+                skirt_gap=(args.skirt_gap if args.skirt_gap is not None else 6.0),
+                brim=(args.brim or 0.0),
+                multitool=not args.no_multitool,
+                scale=(args.scale or 0.0),
+                fit_bed=bool(args.fit_bed),
+                center_bed=True)
+            rep = stl_job.render_universal(profile, out, opts,
+                                           progress=lambda i, n: print(
+                                               f"\r  layer {i}/{n}", end="",
+                                               file=sys.stderr))
+            if sys.stderr.isatty():
+                print("", file=sys.stderr)
+            n = sum(1 for _ in open(out, "r", encoding="ascii", errors="replace"))
+            print(f"{out}")
+            print(f"  triangles: {len(stl_job.triangles):,}")
+            print(f"  layers   : {stl_job.layer_n}")
+            print(f"  lines    : {n}")
+            print(f"  bed      : {profile.bed_x} x {profile.bed_y} mm  ({profile.name})")
+            for t, ln in sorted(rep["len_by_tool"].items()):
+                print(f"  T{t}        : path {ln} m, filament {rep['e_by_tool'].get(t, 0.0)} m")
+            print(f"  estimate : {rep['est_time_min']} min   (first run - verify on the machine)")
+            print(f"  time     : {time.time() - t0:.1f} s")
+            return 0
+
+        stl_job.render_zccad(out, pre_side=not args.no_pre_side,
+                             progress=lambda i, n: print(
+                                 f"\r  layer {i}/{n}", end="", file=sys.stderr))
+        if sys.stderr.isatty():
+            print("", file=sys.stderr)
+        n = sum(1 for _ in open(out, "r", encoding="ascii", errors="replace"))
+        print(f"{out}")
+        print(f"  triangles: {len(stl_job.triangles):,}")
+        print(f"  layers   : {stl_job.layer_n}")
+        print(f"  lines    : {n}")
+        print(f"  time     : {time.time() - t0:.1f} s")
+        return 0
+
     job = Job(par, args.dxf, cell=args.cell, offset=offset, place=place,
               fill=args.fill, hem=not args.no_hem,
               min_area=args.min_area, max_area=args.max_area).load()
