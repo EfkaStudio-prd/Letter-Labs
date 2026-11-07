@@ -161,7 +161,7 @@ actually means bottom **height**.
 | fill spacing | `dbFillSpacing` | `--fill-spacing MM` | OK |
 | boundary distance | `dbBoundaryDis` | — | **NO** |
 | angle | `dbAngle` | fixed 45 | ~ |
-| fill type 1 height (face) | `panelFill.dbHeight` | `--first-layer-fill` | ~ |
+| fill type 1 height (face) | `panelFill.dbHeight` | `--first-layer-fill` (layer 0 only) or `--solid-bottom N` (bottom N layers, brief face close-out) | ~ |
 | fill type 2 height (back) | `iType2` | — | **NO** |
 | inner width (inset contour) | `dbInWidth` (0.8) | — | **NO** |
 | separate extruder | `iExtruder` | — | **NO** |
@@ -171,7 +171,10 @@ actually means bottom **height**.
 
 Fill is the least complete area. `--fill` produces a simple hatch; the vendor's
 two-stage face/back fill with inset contours and separate extruders is not
-reproduced.
+reproduced. The face (`fill type 1`) is covered by `--solid-bottom N` since
+2026-11: it reuses the `--first-layer-fill` hatch writer on the bottom N layers
+(zccad branch, T27). The back fill (`iType2`) is still **NO** - the top of a
+letter stays open like every vendor export.
 
 ---
 

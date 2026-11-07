@@ -287,7 +287,7 @@ class Job:
 
     # ------------------------------------------------------------------ render
     def render(self, out_path, pre_side=True, first_layer_fill=False,
-               fill_spacing=None, progress=None):
+               fill_spacing=None, solid_bottom=0, progress=None):
         p = self.p
         off_total = max(0.0, p.let.iThichnessCount) * p.let.dbThichnessOffset
         side = p.let.dbOffsetPreSide + p.let.dbThicknessOrigin * max(0, p.let.iNumPreSide)
@@ -351,7 +351,13 @@ class Job:
                     if first:
                         block_first = False
 
-                if first_layer_fill and li == 0:
+                # optional solid face cap on the low layers.  --first-layer-fill
+                # keeps the layer-0 adhesion hatch; --solid-bottom N hatches the
+                # bottom N layers solid - the vendor app's own face fill
+                # (Fill Panel: fill type 1 height, panelFill.dbHeight in
+                # docs/MANUAL_MAP.md), written with the same hatch writer.
+                if (first_layer_fill and li == 0) \
+                        or (solid_bottom and li < solid_bottom):
                     sp = fill_spacing or p.let.dbThicknessOrigin
                     w.first_layer_fill(self.rings, h, spacing=sp)
                     w.begin_block()

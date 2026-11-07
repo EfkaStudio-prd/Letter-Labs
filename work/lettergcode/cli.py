@@ -254,7 +254,11 @@ def main(argv=None):
                     choices=["rectilinear", "concentric"],
                     help="universal: infill style (default rectilinear)")
     ap.add_argument("--solid-bottom", dest="solid_bottom", type=int, default=None,
-                    metavar="N", help="universal: solid base layers (default 2)")
+                    metavar="N", help="universal: solid base layers (default 2). "
+                    "zccad: hatch the first N layers solid (front-face close-out, "
+                    "the vendor app's Fill Panel 'fill type 1 height'); 0 or "
+                    "absent keeps the plain wall letter (N x 0.3 mm thick, "
+                    "e.g. 7 = ~2.1 mm face)")
     ap.add_argument("--solid-top", dest="solid_top", type=int, default=None,
                     metavar="N", help="universal: solid top layers (default 2)")
     ap.add_argument("--skirt-lines", dest="skirt_lines", type=int, default=None,
@@ -533,6 +537,7 @@ def main(argv=None):
     job.render(out, pre_side=not args.no_pre_side,
                first_layer_fill=args.first_layer_fill,
                fill_spacing=args.fill_spacing,
+               solid_bottom=(args.solid_bottom or 0),
                progress=lambda i, n: print(f"\r  layer {i}/{n}", end="", file=sys.stderr))
     if sys.stderr.isatty():
         print("", file=sys.stderr)

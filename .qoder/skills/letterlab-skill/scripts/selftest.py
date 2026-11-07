@@ -35,6 +35,8 @@ silently produce a bad print:
   T24 smooth spiral: Phase 2 - the engine refuses instead of half-emitting
   T25 smooth primes: every stop prime follows a G92 E0 reset (vendor E-jump bug)
   T26 smooth speed-temperature pairing: 230 C up to 50 mm/s per the manual rule
+  T27 zccad --solid-bottom N: the bottom N layers hatch solid (the vendor app's
+      Fill Panel face fill) while every layer above keeps the exact wall plan
 
   python selftest.py            # all tests
   python selftest.py --quick    # skip the slow golden regression (T6/T7)
@@ -1007,6 +1009,43 @@ def test_smooth_speed_temp(tmp):
           "F2700->230C in header; F3900 (65 mm/s) -> 240C in header")
 
 
+def test_solid_bottom(tmp):
+    """T27: --solid-bottom N hatches the bottom N layers; walls stay identical."""
+    import gcode3d
+    from lettergcode.job import Job
+    dxf = os.path.join(tmp, "rect_hole5.dxf")
+    _smooth_rect_hole(dxf)
+    base = os.path.join(tmp, "cap_base.gcode")
+    capped = os.path.join(tmp, "cap_faces.gcode")
+    Job(_smooth_par(), dxf).load().render(base)
+    Job(_smooth_par(), dxf).load().render(capped, solid_bottom=3)
+    par = _smooth_par()
+
+    def counts_by_z(path):
+        tp = gcode3d.Toolpath(path, bead_width=1.2)
+        byz = {}
+        for _, _, _, _, _, z1, _t in tp.seg:
+            byz[round(z1, 2)] = byz.get(round(z1, 2), 0) + 1
+        return byz
+
+    b = counts_by_z(base)
+    c = counts_by_z(capped)
+    layers = par.layer_count
+    zs = [(i + 1) * par.let.dbHeightLayer for i in range(layers)]
+    zs = [round(z, 2) for z in zs]
+    # bottom-3 layers carry the hatch: many extruding segments compared to the
+    # bare two-line wall
+    lb = [b.get(z, 0) for z in zs[:3]]
+    lc = [c.get(z, 0) for z in zs[:3]]
+    ok = all(cc > bb3 * 3 for bb3, cc in zip(lb, lc))
+    # every layer above the cap is identical wall work
+    eq = all(b.get(z, 0) == c.get(z, 0) for z in zs[3:])
+    ok = ok and eq
+    check("T27 zccad solid-bottom face cap", ok,
+          "hatch layers seg base %s -> cap %s; layers above identical(%s)"
+          % (lb, lc, "yes" if eq else "no"))
+
+
 def main(argv):
     import tempfile
     quick = "--quick" in argv
@@ -1036,6 +1075,7 @@ def main(argv):
         test_templates(tmp)
         test_html_writer(tmp)
         test_stl_slicer(tmp)
+        test_solid_bottom(tmp)
         test_smooth_walls(tmp)
         test_smooth_spacing()
         test_smooth_e_model(tmp)
