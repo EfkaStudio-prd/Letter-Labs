@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import sys
 import time
@@ -22,6 +23,155 @@ def _pair(text):
         return (float(a), float(b))
     except ValueError:
         raise SystemExit(f"expected X,Y but got {text!r}")
+
+
+# ---------------------------------------------------------------------------
+# smooth profile (--family zccad --profile smooth, SMOOTH_ZCCAD_BRIEF_R0)
+
+def _smooth_neutralize(args, par):
+    """Machine-level field values a smooth job always asserts.
+
+    Without --bands/--glue the colour plan collapses to a single band of glue
+    1 (T0): Params() defaults ask for two bands and one of the four defects
+    the smooth profile exists to fix is exactly that kind of surprise.  The
+    speed/temp values the engine needs live in GcodePara.ini on the shop
+    machine, which never ships with the repo, so they are set explicitly.
+    The equipment-level fields the vendor writer consumes directly come from
+    write_head/write_initial_switch/write_pre_side, which stay byte-identical
+    to the vendor-exact pipeline (only the path plan changes).
+    """
+    if not args.bands and not args.glue:
+        par.col.iLayerNum = 1
+        par.col.dbLayerHeight = [par.let.dbHeightShell]
+        par.col.iLayerGlueNo = [1]
+    par.pri.iSpeedIdle = 12000
+    par.pri.iSpeedFirstLayer = 1800
+    par.pri.dbDisClear = 30.0
+    par.glu.iSpeedGlueBack = 1800
+
+
+def _smooth_median(values):
+    vs = sorted(values)
+    return vs[len(vs) // 2] if vs else None
+
+
+def _run_smooth(args, ap, out, t0, par):
+    import hashlib
+
+    from .smooth import (BED, E_ANCHOR, SmoothJob, SmoothOpts, audit_file,
+                         auto_wall_spacing, e_per_mm)
+
+    if args.stl:
+        raise SystemExit("smooth covers DXF letters only in Phase 1 "
+                         "(brief section 9); 3D STL imports stay with the "
+                         "other families")
+    if args.seat_w:
+        raise SystemExit("--seat-w builds the vendor-style seat; smooth "
+                         "plans the pocket itself, use --pangkon MM")
+    if args.passes is not None:
+        raise SystemExit("--passes keeps the vendor '+1 line' quirk; on "
+                         "smooth, wall count is --walls (T17)")
+
+    t0 = time.time()
+    place = _pair(args.place)
+    offset = _pair(args.offset) or (0.0, 0.0)
+    opts = SmoothOpts.from_args(args)
+    job = SmoothJob(par, args.dxf, opts=opts, cell=args.cell,
+                    min_area=args.min_area, max_area=args.max_area,
+                    scale=(args.scale or 0.0), offset=offset,
+                    place=place).load()
+    stats = job.render(out, pre_side=not args.no_pre_side,
+                       progress=lambda i, n: print(
+                           f"\r  layer {i}/{n}", end="", file=sys.stderr))
+    if sys.stderr.isatty():
+        print("", file=sys.stderr)
+    aud = audit_file(out, preside_prime=job.preside_prime)
+    n = sum(1 for _ in open(out, "r", encoding="ascii", errors="replace"))
+
+    sha = ""
+    with open(out, "rb") as fh:
+        sha = hashlib.sha256(fh.read()).hexdigest()
+
+    h = par.let.dbHeightLayer
+    w = par.glue_width
+    want_spacing = auto_wall_spacing(w, h)
+    spacing_ok = abs(stats["spacing"] - want_spacing) < 1e-9
+    ratios = [b["gain"] / b["gain_len"] for b in aud["blocks"]
+              if b["gain_len"] > 50.0 and not b["preside"]]
+    med_e = _smooth_median(ratios)
+    e_ok = med_e is not None and abs(med_e / E_ANCHOR - 1.0) <= 0.005
+    want_stops = max(0, stats["contours"] - 1)
+    got_stops = (max(aud["stops_by_layer"].values())
+                 if aud["stops_by_layer"] else 0)
+    stops_ok = got_stops <= want_stops
+    seam_shift = 0.0
+    for positions in stats["seam"].values():
+        if len(positions) < 2:
+            continue
+        pts = list(positions.values())
+        for i in range(1, len(pts)):
+            seam_shift = max(seam_shift, ((pts[i][0] - pts[0][0]) ** 2
+                                          + (pts[i][1] - pts[0][1]) ** 2)
+                             ** 0.5)
+    seam_ok = seam_shift <= 0.5
+    bb = aud["bbox"]
+    bed_ok = bb is not None and bb[0] >= 0.0 and bb[1] >= 0.0 \
+        and bb[2] <= BED[0] and bb[3] <= BED[1]
+    prime_ok = aud["prime_guarded"]
+
+    print(out)
+    print(f"  sha256    : {sha}")
+    print(f"  contours  : {stats['contours']}   walls: {stats['walls']}"
+          f"   spacing: {stats['spacing']:.4f} mm"
+          f"   E/mm: {stats['e_per_mm']:.9f}")
+    print(f"  layers    : {stats['layers']}   layer: {h} mm"
+          f"   work F{stats['f_work']} ({stats['f_work'] / 60.0:.0f} mm/s)"
+          f"   nozzle {stats['temp']} C"
+          + (f"  [{stats['speed_note']}]" if stats["speed_note"] else ""))
+    fil = sum(aud["e_used"].values())
+    print(f"  filament  : {fil / 1000:,.1f} m net absolute E"
+          f"  (~{fil * math.pi * (1.75 / 2.0) ** 2 * 0.00124:,.1f} g PLA)")
+    print(f"  path      : {aud['printed_mm'] / 1000:,.1f} m printed"
+          f"   stops/layer: {got_stops} (limit {want_stops})"
+          f"   retracts: {aud['retracts']}")
+    print(f"  estimate  : {stats['est_time_min']:.1f} min"
+          f"   (first run - verify on the machine)")
+    print(f"  bed gate  : x {bb[0]:.1f}..{bb[2]:.1f}  y {bb[1]:.1f}..{bb[3]:.1f}"
+          f"  of {BED[0]:.0f}x{BED[1]:.0f}")
+    for warn in stats["warnings"]:
+        print(f"  warning   : {warn}")
+    print()
+    print("  gates (brief section 4):")
+    print("    T17 walls exact      : "
+          + ("PASS" if len(aud["printed_blocks"])
+             == stats["contours"] * stats["walls"] * stats["layers"]
+             else "FAIL") + f"  ({len(aud['printed_blocks'])} printed blocks "
+          f"= {stats['contours']}x{stats['walls']}x{stats['layers']})")
+    print(f"    T18 spacing (auto)   : "
+          + ("PASS" if spacing_ok else "FAIL")
+          + f"  {stats['spacing']:.4f} = w-h(1-pi/4) = "
+          f"{want_spacing:.4f}")
+    print(f"    T19 E/mm anchor      : "
+          + ("PASS" if e_ok else "FAIL")
+          + (f"  %.9f median vs %.9f (d %.2f%%) +/-0.5%%"
+             % (med_e, E_ANCHOR, (med_e / E_ANCHOR - 1) * 100)))
+    print(f"    T20 stops/layer      : "
+          + ("PASS" if stops_ok else "FAIL")
+          + f"  max {got_stops} vs {want_stops} (kontur-1)")
+    print(f"    T21 seam locked      : "
+          + ("PASS" if seam_ok else "FAIL")
+          + f"  max shift {seam_shift:.3f} mm vs 0.5")
+    print(f"    T22 inside the bed   : " + ("PASS" if bed_ok else "FAIL")
+          + f"   margin {min(bb[0], bb[1], BED[0] - bb[2], BED[1] - bb[3]):.1f}"
+          f" mm vs >= {opts.bed_margin:.0f}")
+    print(f"    T23 dialect subset   : run dialect_check.py separately")
+    print(f"    T25 primes follow G92: "
+          + ("PASS" if prime_ok else "FAIL")
+          + f"  ({aud['blocks_with_push']} primed blocks)")
+    print()
+    print("  UNVERIFIED - nothing from this profile is machine-ready until the")
+    print("  coupons print clean; see docs/SMOOTH_PHASE1_REPORT.md (brief 0)")
+    return 0
 
 
 def main(argv=None):
@@ -125,6 +275,47 @@ def main(argv=None):
                          "still fails")
     ap.add_argument("--bed", default=None, metavar="X,Y",
                     help="universal: override the profile bed size in mm")
+    # --------------------------------------------- smooth (zccad, brief R0) --
+    ap.add_argument("--walls", type=int, default=None, metavar="N",
+                    help="smooth: printed wall lines per contour, no vendor "
+                         "+1 quirk (T17); default 1")
+    ap.add_argument("--wall-spacing", default=None, metavar="AUTO|MM",
+                    help="smooth: distance between wall bead centres; "
+                         "auto = width - layer*(1-pi/4) so rounded caps just "
+                         "touch (T18)")
+    ap.add_argument("--seam", default=None, metavar="CORNER|BACK|X,Y",
+                    help="smooth: locked seam placement (T21); default corner")
+    ap.add_argument("--no-alternate-order", dest="no_alternate_order",
+                    action="store_true",
+                    help="smooth: keep the same contour order every layer "
+                         "instead of alternating (default alternates, T20)")
+    ap.add_argument("--coast", type=float, default=None, metavar="MM",
+                    help="smooth: path length printed with frozen E before a "
+                         "loop closes (default 0.6)")
+    ap.add_argument("--hop", type=float, default=None, metavar="MM",
+                    help="smooth: Z lift that rides with each retract "
+                         "(default 0.6)")
+    ap.add_argument("--min-layer-time", type=float, default=None, metavar="S",
+                    help="smooth: slow a layer down when it would finish "
+                         "faster than this (default 10 s, floor F1200)")
+    ap.add_argument("--speed-class", default=None, metavar="SMALL|LARGE|AUTO",
+                    help="smooth: work speed from the design size (T26); "
+                         "default auto")
+    ap.add_argument("--work-speed", type=int, default=None, metavar="FMM",
+                    help="smooth: explicit wall feed in mm/min, overrides "
+                         "--speed-class and sets the T26 temperature")
+    ap.add_argument("--bed-margin", type=float, default=None, metavar="MM",
+                    help="smooth: warn when plastic+pre-side frame sits "
+                         "closer than this to a bed edge (default 15)")
+    ap.add_argument("--pangkon", type=float, default=None, metavar="MM",
+                    help="smooth: acrylic thickness for the top pocket "
+                         "(3.0 = seat 3.6 mm below the lip); 0 = off")
+    ap.add_argument("--pangkon-back", dest="pangkon_back",
+                    action="store_true",
+                    help="smooth: also cut the pocket mirrored near the bed")
+    ap.add_argument("--spiral", dest="spiral", action="store_true",
+                    help="smooth: continuous Z spiral - accepted here but "
+                         "Phase 2; the engine rejects it politely for now")
     args = ap.parse_args(argv)
 
     tpl = None
@@ -185,6 +376,13 @@ def main(argv=None):
         par.col.iLayerGlueNo = g + [g[-1]] * max(0, par.col.iLayerNum - len(g))
         par.col.iLayerGlueNo = par.col.iLayerGlueNo[:max(1, par.col.iLayerNum)]
     par.reverse_zones = args.reverse_zones
+
+    # ------------------------------------------------- smooth profile dispatch
+    t0 = time.time()
+    smooth = args.family == "zccad" and (args.profile or "") == "smooth"
+    if smooth:
+        _smooth_neutralize(args, par)
+        return _run_smooth(args, ap, out, t0, par)
 
     if args.show_params:
         print(f"family             : {args.family}"

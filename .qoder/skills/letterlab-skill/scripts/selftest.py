@@ -17,6 +17,24 @@ silently produce a bad print:
       XY, layer markers match H/L and the E word equals path*w*h/area per move
   T14 style templates: shipped JSONs load, explicit CLI values win
   T15 the interactive HTML viewer writes a self-contained webgl file
+  T16 3D STL slicer feeds both dialects (binary/ASCII)
+
+  Smooth profile (--family zccad --profile smooth, brief R0), UNVERIFIED
+  until the physical coupons print clean - these gates only prove the toolpath:
+
+  T17 smooth walls: rings per contour == --walls exactly, no "+"1 quirk
+  T18 smooth auto wall spacing = w - h*(1-pi/4) so rounded caps just touch
+  T19 smooth flow: E/mm == the anchor ratio, +/-0.5%, including layer 0.4
+  T20 smooth stops: <= kontur-1 per layer, zero for one contour; ordering
+      matters (alternating avoids the layer-boundary stop)
+  T21 smooth seam: one locked vertex/XY per contour across all layers
+      (documented shift <= 0.5 mm, measured 0.000)
+  T22 smooth bed gate: refuse when the design+pre-side frame leaves the bed,
+      warn below the 15 mm margin
+  T23 smooth output stays inside the vendor dialect (subset of real exports)
+  T24 smooth spiral: Phase 2 - the engine refuses instead of half-emitting
+  T25 smooth primes: every stop prime follows a G92 E0 reset (vendor E-jump bug)
+  T26 smooth speed-temperature pairing: 230 C up to 50 mm/s per the manual rule
 
   python selftest.py            # all tests
   python selftest.py --quick    # skip the slow golden regression (T6/T7)
@@ -636,6 +654,359 @@ def test_stl_slicer(tmp):
               len(tri_b), len(tri_a), len(rings), len(txt_z), len(txt_u)))
 
 
+# ---------------------------------------------------------------------------
+# T17..T26: the smooth profile (--family zccad --profile smooth)
+# SMOOTH_ZCCAD_BRIEF_R0 lists these as the Fase-1 acceptance gates.
+
+FIXTURE_I = os.path.join(SKILL_DIR, "fixtures", "i_serif.dxf")
+
+
+def _smooth_rect_hole(path):
+    """ASCII DXF: 100x60 rectangle carrying a 40x20 rectangular hole.
+
+    Deterministic two-contour geometry: an inset at ANY offset always exists
+    on both boundaries, so per-layer ring counts are exact and independent of
+    marching-squares luck.
+    """
+    n = ["0", "LWPOLYLINE", "8", "0", "100", "AcDbEntity", "100",
+         "AcDbPolyline", "90", "4", "70", "1",
+         "10", "0", "20", "0", "10", "100", "20", "0",
+         "10", "100", "20", "60", "10", "0", "20", "60"]
+    h = ["0", "LWPOLYLINE", "8", "0", "100", "AcDbEntity", "100",
+         "AcDbPolyline", "90", "4", "70", "1",
+         "10", "30", "20", "20", "10", "70", "20", "20",
+         "10", "70", "20", "40", "10", "30", "20", "40"]
+    doc = (["0", "SECTION", "2", "HEADER", "9", "$ACADVER", "1", "AC1018",
+            "9", "$INSUNITS", "70", "4", "0", "ENDSEC",
+            "0", "SECTION", "2", "ENTITIES"] + n + h
+           + ["0", "ENDSEC", "0", "EOF"])
+    _write(path, "\n".join(doc) + "\n")
+
+
+def _smooth_par(height=3.0, layer=0.3):
+    """Params() the way the smooth CLI dispatch asserts them (deterministic)."""
+    from lettergcode.params import Params
+    p = Params()
+    p.let.dbHeightShell = height
+    p.let.dbHeightLayer = layer
+    p.let.iNumPreSide = 1
+    p.col.iLayerNum = 1
+    p.col.dbLayerHeight = [height]
+    p.col.iLayerGlueNo = [1]
+    p.pri.iSpeedIdle = 12000
+    p.pri.iSpeedFirstLayer = 1800
+    p.pri.dbDisClear = 30.0
+    p.glu.iSpeedGlueBack = 1800
+    return p
+
+
+def _gen_smooth(out, dxf, extra, tmp):
+    """Generate a smooth job exactly as an operator would: subprocess CLI.
+
+    The INI is pointed at a name that never exists so Params() defaults are
+    the single source of truth even from a machine that carries the shop's
+    real S528\\\\GcodePara.ini.
+    """
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.path.join(REPO, "work")
+    cmd = (["python", "-m", "lettergcode", "--dxf", dxf, "--out", out,
+            "--ini", os.path.join(tmp, "absent_ini_on_purpose.ini"),
+            "--family", "zccad", "--profile", "smooth",
+            "--height", "3", "--layer", "0.3", "--walls", "1",
+            "--pre-passes", "1", "--place", "40,40"]
+           + list(extra))
+    return subprocess.run(cmd, cwd=os.path.join(REPO, "work"), env=env,
+                          stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL).returncode
+
+
+def _aud(out):
+    from lettergcode import smooth as sm
+    return sm.audit_file(out)
+
+
+def test_smooth_walls(tmp):
+    from lettergcode import smooth as sm
+    dxf = os.path.join(tmp, "rect_hole.dxf")
+    _smooth_rect_hole(dxf)
+    ok_counts = True
+    detail = []
+    for walls in (1, 2):
+        out = os.path.join(tmp, "smooth_walls%d.gcode" % walls)
+        if _gen_smooth(out, dxf, ["--walls", str(walls)], tmp) != 0:
+            check("T17 smooth walls exact", False,
+                  "generate failed (walls=%d)" % walls)
+            return
+        aud = _aud(out)
+        by_z = {}
+        for b in aud["printed_blocks"]:
+            by_z[b["z"]] = by_z.get(b["z"], 0) + 1
+        bad = {z: c for z, c in by_z.items() if c != 2 * walls}
+        layers = _smooth_par().layer_count
+        ok_counts = ok_counts and len(aud["printed_blocks"]) == 2 * walls * layers
+        detail.append("w%d:%d/%d" % (walls, len(by_z), 2 * walls))
+        if bad:
+            ok_counts = False
+            detail.append("mismatch %s" % sorted(bad.items())[:3])
+        # the vendor quirk this exists to kill: --passes 1 printed TWO lines
+        if walls == 1 and len(aud["printed_blocks"]) != layers * 2:
+            detail.append("vendor +1 residue: %d blocks" %
+                          len(aud["printed_blocks"]))
+    check("T17 smooth walls exact", ok_counts,
+          "per layer rings == contours x walls for walls 1 and 2 (%s)"
+          % ",".join(detail))
+
+
+def test_smooth_spacing():
+    from lettergcode import smooth as sm
+    ok = True
+    detail = []
+    for w, h in ((1.2, 0.3), (1.2, 0.4), (1.0, 0.25)):
+        want = w - h * (1.0 - math.pi / 4.0)
+        got = sm.auto_wall_spacing(w, h)
+        # gate: spacing >= w - h*(1-pi/4) - 0.05  (brief 4.2)
+        this = got >= want - 0.05 - 1e-12 and abs(got - want) < 1e-9
+        ok = ok and this
+        detail.append("w%.1f/h%.2f=%.4f" % (w, h, got))
+    opts = sm.SmoothOpts()
+    p = _smooth_par()
+    job = sm.SmoothJob(p, FIXTURE_I, opts=opts)
+    auto_default = abs(job.spacing - sm.auto_wall_spacing(1.2, 0.3)) < 1e-9
+    check("T18 smooth auto spacing", ok and auto_default,
+          "%s (default %s)" % (",".join(detail), round(job.spacing, 4)))
+
+
+def test_smooth_e_model(tmp):
+    from lettergcode import smooth as sm
+    got03 = sm.e_per_mm(1.2, 0.3)
+    ok = abs(got03 - sm.E_ANCHOR) < 1e-12
+    want04 = 0.175664            # brief 4.2 reference value for (1.2, 0.40)
+    got04 = sm.e_per_mm(1.2, 0.4)
+    ok = ok and abs(got04 / want04 - 1.0) <= 0.005
+    out = os.path.join(tmp, "smooth_e.gcode")
+    if _gen_smooth(out, FIXTURE_I, ["--walls", "2"], tmp) != 0:
+        check("T19 smooth flow per mm", False, "generate failed (layer 0.3)")
+        return
+    aud = _aud(out)
+    aud_refs = aud  # aud files only need the count; ratios taken below
+
+    def ratios_of(path):
+        a = _aud(path)
+        return [b["gain"] / b["gain_len"] for b in a["blocks"]
+                if b["gain_len"] > 50.0 and not b["preside"]]
+
+    rr = ratios_of(out)
+    med = sm_smoooth_median(rr) if rr else 0.0
+    ok = ok and len(rr) > 0 and abs(med / sm.E_ANCHOR - 1.0) <= 0.005
+
+    out04 = os.path.join(tmp, "smooth_e04.gcode")
+    if _gen_smooth(out04, FIXTURE_I, ["--walls", "1", "--layer", "0.4"],
+                   tmp) != 0:
+        check("T19 smooth flow per mm", False, "generate failed (layer 0.4)")
+        return
+    rr04 = ratios_of(out04)
+    med04 = sm_smoooth_median(rr04) if rr04 else 0.0
+    ok = ok and len(rr04) > 0 and abs(med04 / got04 - 1.0) <= 0.005
+    check("T19 smooth flow per mm", ok,
+          "anchor %.9f file %.9f; layer0.4 want %.6f got %.6f"
+          % (sm.E_ANCHOR, med, got04, med04))
+
+
+def sm_smoooth_median(vs):
+    vs = sorted(vs)
+    return vs[len(vs) // 2]
+
+
+def test_smooth_stops(tmp):
+    from lettergcode import smooth as sm
+    dxf = os.path.join(tmp, "rect_hole2.dxf")
+    _smooth_rect_hole(dxf)
+    out = os.path.join(tmp, "smooth_stops.gcode")
+    if _gen_smooth(out, dxf, ["--walls", "1"], tmp) != 0:
+        check("T20 smooth stops per layer", False, "generate failed")
+        return
+    aud = _aud(out)
+    two = max(aud["stops_by_layer"].values()) if aud["stops_by_layer"] else 0
+    total_two = sum(aud["stops_by_layer"].values())
+    out_i = os.path.join(tmp, "smooth_stops_i.gcode")
+    if _gen_smooth(out_i, FIXTURE_I, ["--walls", "1"], tmp) != 0:
+        check("T20 smooth stops per layer", False, "generate failed (I)")
+        return
+    aud_i = _aud(out_i)
+    one_total = sum(aud_i["stops_by_layer"].values())
+    out_na = os.path.join(tmp, "smooth_stops_na.gcode")
+    if _gen_smooth(out_na, dxf, ["--walls", "1", "--no-alternate-order"],
+                   tmp) != 0:
+        check("T20 smooth stops per layer", False, "generate failed (na)")
+        return
+    aud_na = _aud(out_na)
+    na_total = sum(aud_na["stops_by_layer"].values())
+    layers = _smooth_par().layer_count
+    ok = (two <= 2 - 1            # kontur - 1 for the rectangle-with-hole
+          and one_total == 0      # a single contour never stops
+          and total_two == layers  # exactly one stop: between the two contours
+          and na_total > total_two)  # alternation removed the boundary stop
+    check("T20 smooth stops per layer", ok,
+          "2kontur max %d total %d/%d; 1kontur total %d; non-alt total %d"
+          % (two, total_two, layers, one_total, na_total))
+
+
+def test_smooth_seam(tmp):
+    from lettergcode import smooth as sm
+    out = os.path.join(tmp, "smooth_seam.gcode")
+    if _gen_smooth(out, FIXTURE_I, ["--walls", "1"], tmp) != 0:
+        check("T21 seam locked across layers", False, "generate failed")
+        return
+    aud = _aud(out)
+    by_z = {}
+    for b in aud["printed_blocks"]:
+        if b["travel_xy"]:
+            by_z.setdefault(b["z"], []).append(b["travel_xy"])
+    zs = sorted(by_z)
+    worst = 0.0
+    ok = len(zs) >= 2
+    for i in range(1, len(zs)):
+        prev_s = sorted(by_z[zs[i - 1]])
+        cur_s = sorted(by_z[zs[i]])
+        if len(prev_s) != len(cur_s):
+            ok = False
+            break
+        for pnt in prev_s:
+            d = min(math.hypot(q[0] - pnt[0], q[1] - pnt[1]) for q in cur_s)
+            worst = max(worst, d)
+            if d > 0.5:
+                ok = False
+    check("T21 seam locked across layers", ok,
+          "worst shift %.3f mm over %d layers (limit 0.5)"
+          % (worst, len(zs)))
+
+
+def test_smooth_bed(tmp):
+    from lettergcode import smooth as sm
+    out = os.path.join(tmp, "smooth_bed.gcode")
+    if _gen_smooth(out, FIXTURE_I, ["--walls", "1"], tmp) != 0:
+        check("T22 smooth bed gate", False, "generate failed")
+        return
+    aud = _aud(out)
+    bb = aud["bbox"]
+    ok = bb is not None and bb[0] >= 0.0 and bb[1] >= 0.0 \
+        and bb[2] <= 800.0 and bb[3] <= 800.0
+    margin = min(bb[0], bb[1], 800.0 - bb[2], 800.0 - bb[3]) if bb else -1
+    ok = ok and margin >= 15.0
+    # the gate refuses an offending placement instead of building it
+    refused = False
+    try:
+        sm.SmoothJob(_smooth_par(), FIXTURE_I,
+                     place=(1.0, 1.0)).load().render(
+            os.path.join(tmp, "smooth_bed_bad.gcode"))
+    except SystemExit as exc:
+        # the engine message states the bed size between the words, so match
+        # the stable tokens instead of a full sentence ("leaves the 800 x 800
+        # bed ... add --place X,Y")
+        refused = "bed" in str(exc) and "--place" in str(exc)
+    # a cramped-but-legal placement records the manual's margin warning
+    # (preside frame + prime sticks out 19.2 mm, so 34,34 still lands inside
+    # the bed with 14.8 mm to spare - below the 15 mm margin but legal)
+    warned = sm.SmoothJob(_smooth_par(), FIXTURE_I,
+                          place=(34.0, 34.0)).load()
+    warned.render(os.path.join(tmp, "smooth_bed_warn.gcode"))
+    ok = ok and refused and len(warned.warnings) >= 1
+    check("T22 smooth bed gate", ok,
+          "bbox margin %.1f mm; off-bed refused; tight place warned"
+          % (margin,))
+
+
+def test_smooth_dialect(tmp):
+    from lettergcode import smooth as sm
+    corpus = os.environ.get("LETTERLAB_CORPUS")
+    if not corpus:
+        guess = os.path.join(os.path.expanduser("~"), "Documents", "G-Code")
+        corpus = guess if os.path.isdir(guess) else None
+    if not corpus or not os.path.isdir(corpus):
+        skip("T23 smooth dialect subset",
+             "no vendor corpus dir (set LETTERLAB_CORPUS)")
+        return
+    dxf = os.path.join(tmp, "rect_hole3.dxf")
+    _smooth_rect_hole(dxf)
+    out = os.path.join(tmp, "smooth_dialect.gcode")
+    if _gen_smooth(out, dxf, ["--walls", "1"], tmp) != 0:
+        check("T23 smooth dialect subset", False, "generate failed")
+        return
+    checker = os.path.join(HERE, "dialect_check.py")
+    proc = subprocess.run([sys.executable, checker, "--corpus", corpus,
+                           "--test", out], stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, text=True,
+                          errors="replace")
+    verdict = "CONFORMS" in proc.stdout and proc.returncode == 0
+    last = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else ""
+    check("T23 smooth dialect subset", verdict,
+          "dialect_check rc=%d %s" % (proc.returncode, last))
+
+
+def test_smooth_spiral_stub():
+    from lettergcode import smooth as sm
+    out = os.path.join(_tmp_for_selftest(), "smooth_spiral.gcode")
+    refused = False
+    try:
+        opts = sm.SmoothOpts()
+        opts.spiral = True
+        job = sm.SmoothJob(_smooth_par(), FIXTURE_I, opts=opts).load()
+        job.render(out)
+    except SystemExit as exc:
+        refused = "Phase 2" in str(exc)
+    check("T24 spiral is Phase 2 (stub guarded)", refused,
+          "spiral render must refuse with the Phase 2 note; the real spiral "
+          "gate itself can only be measured after Phase 2 settles")
+
+
+def _tmp_for_selftest():
+    import tempfile
+    return tempfile.gettempdir()
+
+
+def test_smooth_prime_guard(tmp):
+    dxf = os.path.join(tmp, "rect_hole4.dxf")
+    _smooth_rect_hole(dxf)
+    out = os.path.join(tmp, "smooth_primes.gcode")
+    if _gen_smooth(out, dxf, ["--walls", "2"], tmp) != 0:
+        check("T25 primes follow G92 E0", False, "generate failed")
+        return
+    aud = _aud(out)
+    layers = _smooth_par().layer_count
+    ok = aud["prime_guarded"]
+    pushes = [pu for b in aud["main_blocks"] for pu in b["pushes"]]
+    steady = all(abs(pu - 3.1) < 0.02 for pu in pushes)
+    ok = ok and steady and aud["blocks_with_push"] == layers + 1
+    check("T25 primes follow G92 E0", ok,
+          "%d primed blocks (layers+%d), push %.2f mm each, all guarded"
+          % (aud["blocks_with_push"], len(pushes) - aud["blocks_with_push"],
+             (pushes[0] if pushes else float("nan"))))
+
+
+def test_smooth_speed_temp(tmp):
+    from lettergcode import smooth as sm
+    ok = (sm.temp_for_speed(45.0) == 230 and sm.temp_for_speed(50.0) == 230
+          and sm.temp_for_speed(50.1) == 235 and sm.temp_for_speed(60.0) == 235
+          and sm.temp_for_speed(60.1) == 240 and sm.temp_for_speed(70.0) == 240
+          and sm.temp_for_speed(70.1) == 245)
+    out = os.path.join(tmp, "smooth_temp.gcode")
+    if _gen_smooth(out, FIXTURE_I, ["--walls", "1"], tmp) != 0:
+        check("T26 speed vs temperature", False, "generate failed")
+        return
+    head = open(out, "r", encoding="ascii", errors="replace").read(600)
+    ok = ok and "M104 S230 T0" in head
+    out2 = os.path.join(tmp, "smooth_temp2.gcode")
+    if _gen_smooth(out2, FIXTURE_I, ["--walls", "1", "--work-speed", "3900"],
+                   tmp) != 0:
+        check("T26 speed vs temperature", False, "generate failed (F3900)")
+        return
+    head2 = open(out2, "r", encoding="ascii", errors="replace").read(600)
+    ok = ok and "M104 S240 T0" in head2 \
+        and not any(ln.startswith("M104 S0") for ln in head2.splitlines())
+    check("T26 speed vs temperature", ok,
+          "F2700->230C in header; F3900 (65 mm/s) -> 240C in header")
+
+
 def main(argv):
     import tempfile
     quick = "--quick" in argv
@@ -665,6 +1036,16 @@ def main(argv):
         test_templates(tmp)
         test_html_writer(tmp)
         test_stl_slicer(tmp)
+        test_smooth_walls(tmp)
+        test_smooth_spacing()
+        test_smooth_e_model(tmp)
+        test_smooth_stops(tmp)
+        test_smooth_seam(tmp)
+        test_smooth_bed(tmp)
+        test_smooth_dialect(tmp)
+        test_smooth_spiral_stub()
+        test_smooth_prime_guard(tmp)
+        test_smooth_speed_temp(tmp)
     failed = [n for n, ok, _ in RESULTS if not ok]
     print("\n%d/%d checks passed" % (len(RESULTS) - len(failed), len(RESULTS)))
     if SKIPPED:

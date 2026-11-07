@@ -1,0 +1,17 @@
+{
+    "name": "smooth_letter_v1",
+    "description": "Smooth one-wall letter (ZCCAD dialect): 20 mm, layer 0.3, locked seam, contour-by-contour order. Coupon-class defaults from SMOOTH_ZCCAD_BRIEF_R0.",
+    "family": "zccad",
+    "profile": "smooth",
+    "height": 20.0,
+    "layer": 0.3,
+    "walls": 1,
+    "wall_spacing": "auto",
+    "seam": "corner",
+    "coast": 0.6,
+    "hop": 0.6,
+    "min_layer_time": 10.0,
+    "speed_class": "auto",
+    "pre_passes": 1,
+    "scale": 1.0
+}

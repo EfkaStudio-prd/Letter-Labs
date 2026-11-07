@@ -67,6 +67,28 @@ Why this is not a guess:
 **Confirm the two-row mapping above before relying on it.** A photograph can
 distinguish "pale" from "translucent", not "transparent" from "frosted white".
 
+### Colour conflict — slot 1 (logged 2026-11-07)
+
+Dwi's later statement contradicts the listing above:
+
+```
+Dwi  : slot 1 = black, slot 2 = white, slot 3 = transparent
+doc  : slot 1 = transparent, slot 2 = white, slot 3 = transparent
+```
+
+The two sources agree on slots 2 and 3 and disagree on slot 1. The photos argue
+for the doc's version only weakly: if the translucent top band really came from
+UI slot 1, a black spool in slot 1 would have printed a black band — the photos
+show translucent instead. That rules out a plain black spool, but a frosted
+white vs transparent distinction stays outside the reach of a photograph.
+
+Consequence for the engine (binding): colour is never encoded. The engine maps
+UI extruder `n` to `T(n-1)` and nothing else; which material sits in which slot
+is whatever the operator loads that day. **Before every job that references a
+slot — coupon, custom letter, template — ask the operator to list the spools as
+loaded and only then decide whether the printed bands mean what we think.**
+Do not bake the mapping into a template JSON, a report or a T-command.
+
 ## Consequences for this project
 
 Settled:
@@ -91,6 +113,25 @@ Not settled by this run:
   dialect; it does not prove that a file written by this engine prints correctly.
 - No measurement was taken of wall thickness, pocket fit or dimensional accuracy.
 - `T2` remains untested on hardware.
+
+## First non-vendor file accepted — the C500 circle
+
+The circle ring from the C500 test sequence (500 mm outside diameter, 80 mm
+wall, acrylic pocket on top; shipped as `templates/ring_500_h80_pangkon.json`)
+was written by this engine, not by ZCCAD, and the machine accepted it. That is
+the first hardware assignment that carries a LetterLab export: dialect
+acceptance is no longer a vendor-file-only fact.
+
+Limits of that evidence, recorded so nobody over-trusts it:
+
+- The repo holds no measurement from that run — no photo, no wall or pocket
+  gauge, no printed-time check. "Accepted" is the only recorded outcome.
+- It exercised the top-pocket + 500 mm ring geometry, not a small serif letter
+  at 45 mm/s, so it says nothing about the smooth-profile coupons
+  (`docs/SMOOTH_PHASE1_REPORT.md`). Those stay **UNVERIFIED** until the
+  physical coupons print clean.
+- Slot/colour loading that day is not recorded; per the colour rule above,
+  confirm spools per job.
 
 ## One vendor quirk worth knowing
 

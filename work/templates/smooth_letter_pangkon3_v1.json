@@ -1,0 +1,18 @@
+{
+    "name": "smooth_letter_pangkon3",
+    "description": "Smooth one-wall letter with the acrylic top pocket for 3 mm sheet (seat 3.6 mm under the lip, seat rings at 40 mm/s). Coupon-class defaults from SMOOTH_ZCCAD_BRIEF_R0.",
+    "family": "zccad",
+    "profile": "smooth",
+    "height": 20.0,
+    "layer": 0.3,
+    "walls": 1,
+    "wall_spacing": "auto",
+    "seam": "corner",
+    "coast": 0.6,
+    "hop": 0.6,
+    "min_layer_time": 10.0,
+    "speed_class": "auto",
+    "pre_passes": 1,
+    "pangkon": 3.0,
+    "scale": 1.0
+}

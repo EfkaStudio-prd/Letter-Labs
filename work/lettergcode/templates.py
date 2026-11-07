@@ -45,6 +45,10 @@ TEMPLATE_KEYS = frozenset({
     "infill", "infill_pattern", "solid_bottom", "solid_top",
     "skirt_lines", "skirt_gap", "brim",
     "scale", "fit_bed", "multitool",
+    # smooth profile (--family zccad --profile smooth, brief R0)
+    "walls", "wall_spacing", "seam", "coast", "hop",
+    "min_layer_time", "speed_class", "work_speed", "bed_margin",
+    "pangkon", "pangkon_back", "alternate_order",
 })
 
 
@@ -109,7 +113,10 @@ def apply_template(args_ns, tpl):
              "infill", "infill_pattern", "solid_bottom", "solid_top",
              "skirt_lines", "skirt_gap", "brim",
              "scale", "profile", "family",
-             "bands", "glue")
+             "bands", "glue",
+             "walls", "wall_spacing", "seam", "coast", "hop",
+             "min_layer_time", "speed_class", "work_speed", "bed_margin",
+             "pangkon")
     for key in holed:
         if key in tpl and getattr(args_ns, key, None) is None:
             setattr(args_ns, key, tpl[key])
@@ -118,12 +125,18 @@ def apply_template(args_ns, tpl):
         args_ns.bands = ",".join(str(v) for v in args_ns.bands)
     if isinstance(getattr(args_ns, "glue", None), (list, tuple)):
         args_ns.glue = ",".join(str(int(v)) for v in args_ns.glue)
-    for flag_key, dest in (("fill", "fill"), ("fit_bed", "fit_bed")):
+    for flag_key, dest in (("fill", "fill"), ("fit_bed", "fit_bed"),
+                           ("pangkon_back", "pangkon_back")):
         if flag_key in tpl and tpl[flag_key]:
             setattr(args_ns, dest, True)
     # multitool: only move off -> on template-driven; a typed --no-multitool
     # always wins (store_true default cannot be told apart, so False wins)
     if "multitool" in tpl and not getattr(args_ns, "no_multitool", False):
         args_ns.no_multitool = not bool(tpl["multitool"])
+    # alternate_order: same store_true shape as multitool - the CLI flag is
+    # --no-alternate-order, the template states the wanted arrangement
+    if "alternate_order" in tpl and not getattr(args_ns,
+                                                "no_alternate_order", False):
+        args_ns.no_alternate_order = not bool(tpl["alternate_order"])
     if "hem" in tpl and not tpl["hem"]:
         args_ns.no_hem = True
