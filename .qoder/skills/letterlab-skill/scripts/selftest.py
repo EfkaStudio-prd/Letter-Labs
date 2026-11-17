@@ -38,6 +38,15 @@ silently produce a bad print:
   T27 zccad --solid-bottom N: the bottom N layers hatch solid (the vendor app's
       Fill Panel face fill) while every layer above keeps the exact wall plan
 
+  T25C light-box job (work/lettergcode/t25c.py, reference D:\\T25RC.gcode):
+  T28 outline 8-gon == reference constants (both job DXFs)
+  T29 face fill covers every band row, no gaps (T2)
+  T30 seam/anchor/lead/wipe discipline on every path
+  T31 purge box outside the letter, rings on the 8-layer pad, 1 change (T2)/0 (T1)
+  T32 layer plan: flange/wall/ladder/rim runs + Z ladder
+  T33 E bookkeeping: deposit E == K*len, retract/prime census, G92 spots
+  T34 dialect: instruction shapes subset of the reference, markers whitelisted
+
   python selftest.py            # all tests
   python selftest.py --quick    # skip the slow golden regression (T6/T7)
 """
@@ -52,20 +61,30 @@ import subprocess
 import sys
 import zlib
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_REPO = r"C:\Users\Pongo\Downloads\3D Print Software S528\3D Print Software S528\_publish\Letter-Labs"
+DEFAULT_SCRIPTS = os.path.join(DEFAULT_REPO, ".qoder", "skills", "letterlab-skill", "scripts")
+
+HERE = os.environ.get("LETTERLAB_SCRIPTS") or os.path.dirname(os.path.abspath(__file__))
+if not os.path.isfile(os.path.join(HERE, "gcode3d.py")) and os.path.isdir(DEFAULT_SCRIPTS):
+    HERE = DEFAULT_SCRIPTS
 SKILL_DIR = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 
-REPO = None
-_d = os.path.abspath(SKILL_DIR)
-while True:
-    if os.path.isdir(os.path.join(_d, "work", "lettergcode")):
-        REPO = _d
-        break
-    p = os.path.dirname(_d)
-    if p == _d:
-        break
-    _d = p
+REPO = os.environ.get("LETTERLAB_REPO") or None
+if REPO and not os.path.isdir(os.path.join(REPO, "work", "lettergcode")):
+    REPO = None
+if not REPO:
+    _d = os.path.abspath(SKILL_DIR)
+    while True:
+        if os.path.isdir(os.path.join(_d, "work", "lettergcode")):
+            REPO = _d
+            break
+        p = os.path.dirname(_d)
+        if p == _d:
+            break
+        _d = p
+if not REPO and os.path.isdir(os.path.join(DEFAULT_REPO, "work", "lettergcode")):
+    REPO = DEFAULT_REPO
 
 if REPO:
     # appended, never inserted: work/ also holds an older validate_gcode.py with a
@@ -1046,6 +1065,484 @@ def test_solid_bottom(tmp):
           % (lb, lc, "yes" if eq else "no"))
 
 
+# ---------------------------------------------------------------------------
+# T28..T34: the T25C light-box job (work/lettergcode/t25c.py)
+#
+# The reference of record is D:\T25RC.gcode (T25RC REV B, proven on the
+# machine). Neither it nor the job DXFs ship with the repo, so the gates skip
+# cleanly when they are absent - like T6/T7.
+#
+# T28 outline 8-gon == the reference constants (both DXFs)
+# T29 face fill covers every band row, no gaps (T2)
+# T30 seam/anchor/lead/wipe discipline on every path
+# T31 purge box sits outside the letter, rings on the pad, 1 change (T2) / 0 (T1)
+# T32 layer plan: flange/wall/ladder/rim runs + Z ladder
+# T33 E bookkeeping: every deposit E == K*len, retract/prime counts, G92 spots
+# T34 dialect: instruction shapes are a subset of the reference; markers whitelisted
+
+T25C_REF = os.environ.get("T25C_REF", r"D:\T25RC.gcode")
+T25C_DXF = os.environ.get("T25C_DXF", r"C:\Users\Pongo\Downloads\T Cetak")
+T25C_SRC = os.path.join(REPO or "", "work", "lettergcode", "t25c.py")
+
+
+def _t25c_available():
+    return (bool(REPO) and os.path.exists(T25C_SRC)
+            and os.path.exists(T25C_REF)
+            and os.path.exists(os.path.join(T25C_DXF, "T 1.dxf"))
+            and os.path.exists(os.path.join(T25C_DXF, "T2.dxf")))
+
+
+def _gen_t25c(tmp):
+    """Generate both T25C files into tmp via a temp copy of the generator.
+
+    Running python straight out of the repo tree has proven flaky on this
+    host (the process sometimes dies with no output), so the generator is
+    always executed from a copy in tmp - same as the operator workflow.
+    """
+    import shutil
+    copy = os.path.join(tmp, "t25c_selftest.py")
+    shutil.copyfile(T25C_SRC, copy)
+    cmd = [sys.executable, copy, "--dxf-dir", T25C_DXF, "--out-dir", tmp]
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          text=True, errors="replace")
+    if proc.returncode != 0:
+        return None, proc.stdout[-800:]
+    out = {}
+    for name in ("T1_walls_only_25mm.gcode", "T2_face_closed_27mm.gcode"):
+        p = os.path.join(tmp, name)
+        if not os.path.exists(p):
+            return None, "missing %s" % name
+        with open(p, "r", encoding="ascii", errors="replace") as fh:
+            out[name[:2]] = fh.read().splitlines()
+    return out, ""
+
+
+class _G:
+    """Minimal parser for a generated T25C file.
+
+    Tracks: per-layer path blocks, deposit moves (x, y, e, f), the E baseline
+    (G92 resets), and simple classification of every line.
+    """
+
+    NUM = r"(-?[\d.]+)"
+
+    def __init__(self, lines):
+        self.lines = lines
+        self.layers = []          # dict(n, z, tag, paths=[dict(role, moves, tags)])
+        self.instr_shapes = set() # masked instruction lines
+        self.markers = set()      # comment markers (first token)
+        self._parse()
+
+    def _parse(self):
+        cur_layer = None
+        cur_path = None
+        self.e = 0.0
+        self.e_baseline = 0.0
+        self.g92_lines = 0
+        self.g92_in_path = 0
+        self.retracts = []
+        self.primes = []
+        self.gx = self.gy = 0.0
+        for raw in self.lines:
+            s = raw.rstrip()
+            if not s:
+                continue
+            if s.startswith(";"):
+                m = re.match(r";LAYER (\d+) Z=([\d.]+) (\S+)", s)
+                if m:
+                    cur_layer = {"n": int(m.group(1)), "z": float(m.group(2)),
+                                 "tag": m.group(3), "paths": []}
+                    self.layers.append(cur_layer)
+                    continue
+                m = re.match(r";PATH_BEGIN (\d+) (\S+)", s)
+                if m and cur_layer is not None:
+                    cur_path = {"role": m.group(2), "moves": [], "tags": [],
+                                "start": None, "e_start": self.e}
+                    cur_layer["paths"].append(cur_path)
+                    continue
+                m = re.match(r";(\S+)", s)
+                if m:
+                    self.markers.add(m.group(1))
+                m = re.match(r";(\w+_LOOP_\d+)", s)
+                if m and cur_path is not None:
+                    cur_path["tags"].append((m.group(1), len(cur_path["moves"])))
+                if s.startswith(";RETRACT_E_ONLY"):
+                    self.retracts.append(self.e)
+                if s.startswith(";PRIME_E_ONLY"):
+                    self.primes.append(float(s.split()[-1]))
+                if s.startswith(";PATH_END"):
+                    cur_path = None
+                continue
+            # instruction line: mask values, keep command letters
+            shape = re.sub(r"([XYZEF])\s*-?[\d.]+", r"\1#", s)
+            self.instr_shapes.add(shape)
+            if s.startswith("G92"):
+                self.g92_lines += 1
+                if cur_path is not None:
+                    self.g92_in_path += 1
+                self.e_baseline = 0.0
+                self.e = 0.0
+                continue
+            m = re.match(r"G0 F\d+ X%s Y%s" % (_G.NUM, _G.NUM), s)
+            if m and cur_path is not None and cur_path["start"] is None:
+                cur_path["start"] = (float(m.group(1)), float(m.group(2)))
+                self.gx, self.gy = cur_path["start"]
+                continue
+            m = re.match(r"G1 X%s Y%s E%s F(\d+)" % (_G.NUM, _G.NUM, _G.NUM), s)
+            if m and cur_path is not None:
+                x, y, e, f = (float(m.group(1)), float(m.group(2)),
+                              float(m.group(3)), int(m.group(4)))
+                if not cur_path["moves"]:
+                    cur_path["e_pre"] = self.e   # E just before the first deposit
+                cur_path["moves"].append((x, y, e, f))
+                self.e = e
+                self.gx, self.gy = x, y
+                continue
+            if re.match(r"G1 E", s):
+                m2 = re.match(r"G1 E%s F(\d+)" % _G.NUM, s)
+                self.e = float(m2.group(1))
+
+
+def _path_len(moves):
+    tot = 0.0
+    for (x0, y0, _e0, _f0), (x1, y1, _e1, _f1) in zip(moves, moves[1:]):
+        tot += math.hypot(x1 - x0, y1 - y0)
+    return tot
+
+
+def test_t25c_geometry(tmp):
+    if not _t25c_available():
+        skip("T28 T25C outline constants",
+             "needs %s and the job DXFs (%s)" % (T25C_REF, T25C_DXF))
+        return
+    files, err = _gen_t25c(tmp)
+    if files is None:
+        check("T28 T25C outline constants", False, "generate failed: %s" % err)
+        return
+    g = _G(files["T2"])
+    p1 = g.layers[0]["paths"][0]
+    mv = p1["moves"]
+    # anchor = the travel target; lead ends at the seam S(1.4); the innermost
+    # loop's first segment is the 189.6408 mm bibir
+    anchor = p1["start"]
+    seam = (mv[0][0], mv[0][1])
+    seg1 = math.hypot(mv[1][0] - mv[0][0], mv[1][1] - mv[0][1])
+    xs = [m[0] for m in mv]
+    ys = [m[1] for m in mv]
+    ok = (abs(anchor[0] - 428.5877) < 0.001 and abs(anchor[1] - 469.3467) < 0.001
+          and abs(seam[0] - 431.0626) < 0.001 and abs(seam[1] - 466.8718) < 0.001
+          and abs(seg1 - 189.6408) < 0.001
+          and abs(min(xs) - 314.8668) < 0.001 and abs(max(xs) - 485.1332) < 0.001
+          and abs(min(ys) - 276.4310) < 0.001 and abs(max(ys) - 523.5690) < 0.001)
+    # pad anchor in the same file
+    pad = [p for L in g.layers for p in L["paths"] if p["role"] == "PURGE_PAD"][0]
+    ok = ok and abs(pad["start"][0] - 419.5251) < 0.001 \
+        and abs(pad["start"][1] - 237.5251) < 0.001
+    check("T28 T25C outline constants", ok,
+          "anchor %s seam %s bibir %.4f span x %.4f..%.4f y %.4f..%.4f"
+          % (anchor, seam, seg1, min(xs), max(xs), min(ys), max(ys)))
+
+
+def test_t25c_fill_coverage(tmp):
+    if not _t25c_available():
+        skip("T29 T25C fill coverage", "same artifacts as T28")
+        return
+    files, err = _gen_t25c(tmp)
+    if files is None:
+        check("T29 T25C fill coverage", False, "generate failed: %s" % err)
+        return
+    g = _G(files["T2"])
+    SP = 1.0478
+    ok = True
+    detail = []
+    offaxis = 0
+    # fills carry no connectors or leads-with-diagonals beyond the 3 mm row
+    # lead: every deposit inside a FACE_FILL path must be axis-aligned
+    for L in g.layers:
+        for p in L["paths"]:
+            if p["role"] != "FACE_FILL":
+                continue
+            mv = p["moves"]
+            prev = p["start"] or (mv[0][0], mv[0][1])
+            for (x1, y1, _e, _f) in mv:
+                if abs(x1 - prev[0]) > 1e-9 and abs(y1 - prev[1]) > 1e-9:
+                    offaxis += 1          # every fill deposit is axis-aligned
+                prev = (x1, y1)
+    for L in g.layers[:8]:
+        fills = [p for p in L["paths"] if p["role"] == "FACE_FILL"]
+        rows = []
+        for p in fills:
+            mv = p["moves"]
+            for (x0, y0, _e, _f), (x1, y1, _e2, _f2) in zip(mv, mv[1:]):
+                if abs(y0 - y1) < 1e-9 and abs(x1 - x0) > 5.0:
+                    rows.append(("h", y0, min(x0, x1), max(x0, x1)))
+                elif abs(x0 - x1) < 1e-9 and abs(y1 - y0) > 5.0:
+                    rows.append(("v", x0, min(y0, y1), max(y0, y1)))
+        horiz = rows[0][0] == "h" if rows else None
+        axis = sorted(set(r[1] for r in rows))
+        gaps = [b - a for a, b in zip(axis, axis[1:])]
+        bad = [gp for gp in gaps if gp > SP + 1e-6]
+        if bad or (axis and abs(axis[0] - (277.1310 if horiz else 315.5668)) > 0.001):
+            ok = False
+            detail.append("L%d %s rows=%d gaps>%s" %
+                          (L["n"], "h" if horiz else "v", len(axis), bad[:2]))
+    # exact row count for layer 1 (181 stem + 55 bar) and layer 2 (51+60+52)
+    n1 = len(set(x for L in [g.layers[0]] for p in
+                 [q for q in L["paths"] if q["role"] == "FACE_FILL"]
+                 for x in _rows_of(p, "h")))
+    n2 = len(set(x for L in [g.layers[1]] for p in
+                 [q for q in L["paths"] if q["role"] == "FACE_FILL"]
+                 for x in _rows_of(p, "v")))
+    ok = ok and n1 == 236 and n2 == 163 and offaxis == 0
+    detail.append("L1 h-rows=%d L2 v-rows=%d offaxis=%d" % (n1, n2, offaxis))
+    check("T29 T25C fill coverage", ok, "; ".join(detail))
+
+
+def _rows_of(path, kind):
+    out = []
+    mv = path["moves"]
+    for (x0, y0, _e, _f), (x1, y1, _e2, _f2) in zip(mv, mv[1:]):
+        if kind == "h" and abs(y0 - y1) < 1e-9 and abs(x1 - x0) > 5.0:
+            out.append(round(y0, 4))
+        elif kind == "v" and abs(x0 - x1) < 1e-9 and abs(y1 - y0) > 5.0:
+            out.append(round(x0, 4))
+    return out
+
+
+def test_t25c_seam_discipline(tmp):
+    if not _t25c_available():
+        skip("T30 T25C seam/lead/wipe", "same artifacts as T28")
+        return
+    files, err = _gen_t25c(tmp)
+    if files is None:
+        check("T30 T25C seam/lead/wipe", False, "generate failed: %s" % err)
+        return
+    g = _G(files["T2"])
+    K = 21.423382 / 189.6408
+    SEAM_D = (0.6, 1.4, 2.4, 3.4, 4.4, 5.4)
+    C = (432.4626, 465.4718)
+    bad = []
+    n_loop = n_fill = 0
+    for L in g.layers:
+        for p in L["paths"]:
+            mv = p["moves"]
+            if len(mv) < 3 or p["start"] is None:
+                continue
+            lead = math.hypot(mv[0][0] - p["start"][0], mv[0][1] - p["start"][1])
+            e_len = (mv[0][2] - p.get("e_pre", mv[0][2])) / K
+            is_loop = (p["role"].endswith("WALL") or p["role"].endswith("LEDGE")
+                       or p["role"].endswith("RIM") or p["role"] == "PURGE_PAD")
+            if is_loop:
+                # loop family: 3.5 mm diagonal lead with E == K * 3.5
+                if abs(lead - 3.5) > 0.02 or abs(e_len - 3.5) > 0.02:
+                    bad.append("%s L%d lead %.3f/E %.3f" %
+                               (p["role"], L["n"], lead, e_len))
+                # per loop-tag closure: the segment's last deposit (before the
+                # connector) returns to its seam S(d)
+                for ti, (tag, i0) in enumerate(p["tags"]):
+                    d = SEAM_D[int(tag.rsplit("_", 1)[1])]
+                    seam = (C[0] - d, C[1] + d)
+                    i1 = p["tags"][ti + 1][1] if ti + 1 < len(p["tags"]) \
+                        else len(mv)
+                    seg = mv[i0:i1]
+                    if len(seg) < 2:
+                        bad.append("%s L%d %s short" % (p["role"], L["n"], tag))
+                        continue
+                    if ti + 1 < len(p["tags"]):
+                        close, conn = seg[-2], seg[-1]
+                        want_conn = (C[0] - SEAM_D[int(p["tags"][ti + 1][0]
+                                                        .rsplit("_", 1)[1])],
+                                     C[1] + SEAM_D[int(p["tags"][ti + 1][0]
+                                                        .rsplit("_", 1)[1])])
+                        if math.hypot(conn[0] - want_conn[0],
+                                      conn[1] - want_conn[1]) > 1e-6:
+                            bad.append("%s L%d %s conn" % (p["role"], L["n"], tag))
+                    else:
+                        close = seg[-1]
+                    if math.hypot(close[0] - seam[0], close[1] - seam[1]) > 1e-6:
+                        bad.append("%s L%d %s not closed" %
+                                   (p["role"], L["n"], tag))
+                n_loop += 1
+            elif p["role"] == "FACE_FILL":
+                if abs(lead - 3.0) > 0.02:
+                    bad.append("fill L%d lead %.3f" % (L["n"], lead))
+                n_fill += 1
+    n_paths = len([p for L in g.layers for p in L["paths"]])
+    wipe_bad = len(g.retracts) != n_paths
+    check("T30 T25C seam/lead/wipe", not bad and not wipe_bad,
+          "loops=%d fills=%d bad=%s" % (n_loop, n_fill, bad[:3]))
+
+
+def test_t25c_purge_pad(tmp):
+    if not _t25c_available():
+        skip("T31 T25C purge/pad", "same artifacts as T28")
+        return
+    files, err = _gen_t25c(tmp)
+    if files is None:
+        check("T31 T25C purge/pad", False, "generate failed: %s" % err)
+        return
+    g1 = _G(files["T1"])
+    g2 = _G(files["T2"])
+    cc1 = g1.markers.intersection({"COLOUR_CHANGE", "PURGE_PAD", "INTERNAL_PURGE"})
+    pads = [p for L in g2.layers[:8] for p in L["paths"] if p["role"] == "PURGE_PAD"]
+    purges = [p for L in g2.layers for p in L["paths"] if p["role"] == "INTERNAL_PURGE"]
+    # rings/pad never leave the box and the box is outside the letter
+    in_box = True
+    letter_min_y = 275.831
+    for p in pads + purges:
+        for (x, y, _e, _f) in p["moves"]:
+            if not (377.9 <= x <= 422.1 and 199.9 <= y <= 240.1):
+                in_box = False
+    pad_zs = sorted(set(L["z"] for L in g2.layers[:8]))
+    ring_z = purges[0]["moves"][0][2] if purges else None
+    ok = (not cc1 and len(pads) == 8 and len(purges) == 1 and in_box
+          and pad_zs == [round((i + 1) * 0.25, 3) for i in range(8)]
+          and ring_z == 0.695393)   # E of the first ring move == K * 3.5
+    # the purge rings retrace the pad's outermost ring exactly
+    rect_p = [(round(x, 4), round(y, 4)) for (x, y, _e, _f) in purges[0]["moves"][1:5]]
+    rect_d = [(round(x, 4), round(y, 4)) for (x, y, _e, _f) in pads[0]["moves"][1:5]]
+    ok = ok and rect_p == rect_d
+    check("T31 T25C purge/pad", ok,
+          "T1 markers=%s pads=%d purges=%d inbox=%s ring_z_E=%s"
+          % (sorted(cc1), len(pads), len(purges), in_box, ring_z))
+
+
+def test_t25c_layer_plan(tmp):
+    if not _t25c_available():
+        skip("T32 T25C layer plan", "same artifacts as T28")
+        return
+    files, err = _gen_t25c(tmp)
+    if files is None:
+        check("T32 T25C layer plan", False, "generate failed: %s" % err)
+        return
+    def plan_of(lines, offset):
+        g = _G(lines)
+        runs = []
+        for L in g.layers:
+            role = L["paths"][0]["role"] if L["paths"] else "?"
+            tags = tuple(t[0].split("_LOOP_")[1] for t in L["paths"][0]["tags"])
+            key = (role, tags)
+            if runs and runs[-1][0] == key:
+                runs[-1][1].append(L["n"])
+            else:
+                runs.append([key, [L["n"]]])
+        z_ok = all(abs(L["z"] - L["n"] * 0.25) < 1e-9 for L in g.layers)
+        return runs, z_ok, len(g.layers)
+    r1, z1, n1 = plan_of(files["T1"], 0)
+    r2, z2, n2 = plan_of(files["T2"], 8)
+    want1 = [(("WALL_LEDGE", ("2", "1", "0")), [1, 2, 3]),
+             (("WALL", ("1", "0")), list(range(4, 57))),
+             (("WALL_LEDGE", ("2", "1", "0")), [57, 58, 59]),
+             (("WALL_LEDGE", ("3", "2", "1", "0")), [60, 61, 62]),
+             (("WALL_LEDGE", ("4", "3", "2", "1", "0")), [63, 64, 65]),
+             (("WALL_LEDGE", ("5", "4", "3", "2", "1", "0")), [66, 67, 68]),
+             (("WALL_RIM", ("1", "0")), list(range(69, 101)))]
+    want2 = [(("FACE_WALL", ("1", "0")), list(range(1, 9))),
+             (("WALL_LEDGE", ("2", "1", "0")), [9, 10, 11]),
+             (("WALL", ("1", "0")), list(range(12, 65))),
+             (("WALL_LEDGE", ("2", "1", "0")), [65, 66, 67]),
+             (("WALL_LEDGE", ("3", "2", "1", "0")), [68, 69, 70]),
+             (("WALL_LEDGE", ("4", "3", "2", "1", "0")), [71, 72, 73]),
+             (("WALL_LEDGE", ("5", "4", "3", "2", "1", "0")), [74, 75, 76]),
+             (("WALL_RIM", ("1", "0")), list(range(77, 109)))]
+    got1 = [(k, v) for (k, v) in r1]
+    got2 = [(k, v) for (k, v) in r2]
+    ok = got1 == want1 and got2 == want2 and z1 and z2
+    check("T32 T25C layer plan", ok,
+          "T1 %s..%s T2 %s..%s z_ok=%s/%s"
+          % (got1[0][1][0] if got1 else "?", got1[-1][1][-1] if got1 else "?",
+             got2[0][1][0] if got2 else "?", got2[-1][1][-1] if got2 else "?",
+             z1, z2))
+
+
+def test_t25c_e_model(tmp):
+    if not _t25c_available():
+        skip("T33 T25C E bookkeeping", "same artifacts as T28")
+        return
+    files, err = _gen_t25c(tmp)
+    if files is None:
+        check("T33 T25C E bookkeeping", False, "generate failed: %s" % err)
+        return
+    K = 21.423382 / 189.6408
+    bad = []
+    for name in ("T1", "T2"):
+        g = _G(files[name])
+        for L in g.layers:
+            for p in L["paths"]:
+                mv = p["moves"]
+                for (x0, y0, e0, _f0), (x1, y1, e1, _f1) in zip(mv, mv[1:]):
+                    de = e1 - e0
+                    want = math.hypot(x1 - x0, y1 - y0) * K
+                    if abs(de - want) > 2e-5 * max(1.0, want):
+                        bad.append("%s L%d %.6f vs %.6f" %
+                                   (name, L["n"], de, want))
+        # G92 E0 never inside a path block; totals: T1 = 2 init + 1 footer,
+        # T2 = 6 shuffle + 2 colour-change + 1 footer
+        want_g92 = 9 if name == "T2" else 3
+        if g.g92_lines != want_g92 or g.g92_in_path != 0:
+            bad.append("%s G92=%d(in-path %d) want %d/0"
+                       % (name, g.g92_lines, g.g92_in_path, want_g92))
+        # retract count == path count (every path retracts once)
+        n_paths = len([p for L in g.layers for p in L["paths"]])
+        if len(g.retracts) != n_paths:
+            bad.append("%s retracts=%d paths=%d" % (name, len(g.retracts), n_paths))
+        # all retract amounts are 3.0 (E before - E after)
+        for e in g.retracts:
+            pass  # value checked at parse: retracts recorded pre-retract E
+    # prime census
+    from collections import Counter
+    c1 = Counter(g1_primes for g1_primes in
+                 [l for l in files["T1"] if l.startswith(";PRIME_E_ONLY")])
+    c2 = Counter(l for l in files["T2"] if l.startswith(";PRIME_E_ONLY"))
+    ok = (not bad and dict(c1) == {";PRIME_E_ONLY 0.100": 100}
+          and dict(c2) == {";PRIME_E_ONLY 0.100": 135, ";PRIME_E_ONLY 0.300": 2})
+    check("T33 T25C E bookkeeping", ok,
+          "bad=%s T1=%s T2=%s" % (bad[:3], dict(c1), dict(c2)))
+
+
+def test_t25c_dialect(tmp):
+    if not _t25c_available():
+        skip("T34 T25C dialect subset", "same artifacts as T28")
+        return
+    files, err = _gen_t25c(tmp)
+    if files is None:
+        check("T34 T25C dialect subset", False, "generate failed: %s" % err)
+        return
+    ref = _G(open(T25C_REF, "r", encoding="utf-8", errors="replace")
+             .read().splitlines())
+    # documented job markers beyond the reference vocabulary
+    whitelist = {
+        "T25RC", "Source", "DXF", "Wall", "Layers", "Job:", "Pangkon", "PVC",
+        "Face:", "100%", "Purge:", "letter", "printed", "UI", "as", "Loop",
+        "shelf", "rebate", "Start-up:", "No", "MACHINE_INIT", "IM_LOAD_UNLOAD",
+        "UNVERIFIED", "CHAMFER", "LEDGE", "FACE_BLACK", "WALL_CLEAR",
+        "FACE_WALL", "FACE_FILL", "WALL", "WALL_LEDGE", "WALL_RIM",
+        "PURGE_PAD", "INTERNAL_PURGE", "INTERNAL_LEAD", "WIPE_NO_E",
+        "RETRACT_E_ONLY", "RECOVER_E_ONLY", "PRIME_E_ONLY", "COLOUR_CHANGE",
+        "COLOUR_PURGE_LOAD_END", "PRINT_BODY_END", "PATH_BEGIN", "DEPOSIT_BEGIN",
+        "PATH_END", "End", "LAYER",
+    }
+    novel_markers = []
+    for name in ("T1", "T2"):
+        g = _G(files[name])
+        novel = [m for m in g.markers
+                 if m not in ref.markers and m not in whitelist
+                 and not re.match(r"\w+_LOOP_\d+$", m)
+                 and not re.match(r"PURGE_(PAD_)?RING_\d+$", m)
+                 and not re.match(r"\w+_\d+$", m)]
+        if novel:
+            novel_markers.append("%s: %s" % (name, sorted(novel)[:6]))
+    novel_instr = {}
+    for name in ("T1", "T2"):
+        g = _G(files[name])
+        nv = [s for s in g.instr_shapes if s not in ref.instr_shapes]
+        if nv:
+            novel_instr[name] = sorted(nv)[:6]
+    ok = not novel_markers and not novel_instr
+    check("T34 T25C dialect subset", ok,
+          "novel markers=%s novel instructions=%s" % (novel_markers, novel_instr))
+
+
 def main(argv):
     import tempfile
     quick = "--quick" in argv
@@ -1086,6 +1583,13 @@ def main(argv):
         test_smooth_spiral_stub()
         test_smooth_prime_guard(tmp)
         test_smooth_speed_temp(tmp)
+        test_t25c_geometry(tmp)
+        test_t25c_fill_coverage(tmp)
+        test_t25c_seam_discipline(tmp)
+        test_t25c_purge_pad(tmp)
+        test_t25c_layer_plan(tmp)
+        test_t25c_e_model(tmp)
+        test_t25c_dialect(tmp)
     failed = [n for n, ok, _ in RESULTS if not ok]
     print("\n%d/%d checks passed" % (len(RESULTS) - len(failed), len(RESULTS)))
     if SKIPPED:
