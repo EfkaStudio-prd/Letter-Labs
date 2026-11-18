@@ -6,6 +6,11 @@ __pycache__/
 # Generated G-code: large, and pinned by SHA-256 in artifacts/MANIFEST.md instead
 *.gcode
 
+# Exception: the two validated T25RC jobs are small (127 KB + 288 KB) and are the
+# reference data for artifacts/T25RC/GCODE_SETTINGS.md, so they are tracked.
+!artifacts/T1_walls_only_25mm.gcode
+!artifacts/T2_face_closed_27mm.gcode
+
 # Editor / OS
 .vscode/
 .idea/

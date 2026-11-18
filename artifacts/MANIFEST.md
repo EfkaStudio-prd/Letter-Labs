@@ -112,3 +112,38 @@ Exact byte identity on re-run is not guaranteed: the DXF reader's spline
 flattening is deterministic, but vendor INI values change between sessions. Use
 the ring-count audit, not the file hash, to decide whether two runs are
 equivalent.
+
+---
+
+## T25RC letter T — tracked in the repository
+
+Added in this revision. These two files are **small enough to keep in git**
+(127 KB and 288 KB), so they are exempted from the `*.gcode` rule rather than
+published as release assets. Full parameter set:
+[`T25RC/GCODE_SETTINGS.md`](T25RC/GCODE_SETTINGS.md).
+
+| File | Bytes | SHA-256 | Job |
+|---|---|---|---|
+| `T1_walls_only_25mm.gcode` | 127,394 | `95536c95ff2c753389fba19f0514f40778302e4e7f96f60d7f95622261621442` | walls only, 100 layers to Z=25, single colour (T2 CLEAR) |
+| `T2_face_closed_27mm.gcode` | 288,013 | `c29a3649210415549b4751fc0e72bcd3b66e67be3187c9de1e38d06e5a9c3239` | face closed, 108 layers to Z=27, T0 BLACK face + T2 CLEAR body |
+
+Both jobs are **physically validated** — they print correctly on the Iguana 800.
+
+Measured from the emitted files (E deltas replayed with `G92 E0` boundaries):
+
+| File | Layers | Filament | PLA mass | Tools |
+|---|---|---|---|---|
+| `T1_walls_only_25mm` | 100 | 21.88 m | 65.3 g | T2 only |
+| `T2_face_closed_27mm` | 108 | 42.62 m | 127.1 g | T0 20.69 m / T2 21.93 m |
+
+Reproduce with:
+
+```bash
+python work/lettergcode/t25c.py --dxf-dir artifacts/T25RC
+```
+
+The DXFs the generator reads (`T 1.dxf`, `T2.dxf`) are archived in
+`artifacts/T25RC/`, so the job is reproducible without the original download
+folder. A clean re-run from those archived DXFs was verified to produce both
+files **byte-identical** to the committed ones.
+
