@@ -1,0 +1,26 @@
+﻿diff --git a/src/libslic3r/CMakeLists.txt b/src/libslic3r/CMakeLists.txt
+index b18c3590..6c1216c8 100644
+--- a/src/libslic3r/CMakeLists.txt
++++ b/src/libslic3r/CMakeLists.txt
+@@ -354,6 +354,8 @@ set(lisbslic3r_sources
+     LayerRegion.cpp
+     LayOnFace.cpp
+     LayOnFace.hpp
++    LetterMode/Template.cpp
++    LetterMode/Template.hpp
+     libslic3r.cpp
+     libslic3r.h
+     Line.cpp
+diff --git a/tests/libslic3r/CMakeLists.txt b/tests/libslic3r/CMakeLists.txt
+index 41c0fb05..e3bb3538 100644
+--- a/tests/libslic3r/CMakeLists.txt
++++ b/tests/libslic3r/CMakeLists.txt
+@@ -96,6 +96,8 @@ add_executable(${_TEST_NAME}_tests
+     test_texture_displacement.cpp
+     test_texture_import.cpp
+     test_instance_lock.cpp
++    # Letter Mode templates are loaded and validated before any GUI exists.
++    test_letter_mode_template.cpp
+     ../libnest2d/printer_parts.cpp
+     )
+ 

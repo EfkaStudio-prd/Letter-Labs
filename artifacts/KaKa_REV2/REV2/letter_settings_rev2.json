@@ -1,0 +1,123 @@
+{
+  "schema": "efka.letter-mode.zccad-settings",
+  "revision": 2,
+  "date": "2026-11-21",
+  "status": "parameter set derived from user's physically printed parts; G-code dialect replica not yet validated in native ZCCAD",
+  "provenance": {
+    "primary": "08_Hasil Akhir dan validasi/Validasi update parameter fix.pdf (3 annotated pages, print 22 Oct)",
+    "measured": [
+      "08_Hasil Akhir dan validasi/k.gcode -> E/mm 0.1342857 (0.067142857 per 0.5 mm), F3600/F3000/F2400/F1800",
+      "05_GCODE_ASLI_REFERENSI/TES_IM_M_I_original.gcode -> 230 C, layer 0.3, travel 200 mm/s, hop 0.6 mm"
+    ],
+    "physical_evidence": [
+      "k: successful print 22 Oct (panel dasar + 2 pangkon)",
+      "M+I: photo 22 Oct matches shape and color"
+    ]
+  },
+  "machine": {
+    "name": "Iguana 800 (Marlin)",
+    "bed_mm": [
+      800,
+      800
+    ],
+    "build_height_mm": 65,
+    "nozzle_mm": 1.2,
+    "material": "PLA 1.75"
+  },
+  "temperatures": {
+    "T0_C": 230,
+    "T1_C": 230,
+    "bed": "unheated M140 S0",
+    "end_C": 30
+  },
+  "layer": {
+    "height_mm": 0.3,
+    "count_for_test": 84,
+    "height_for_test_mm": 25.2
+  },
+  "flow": {
+    "E_per_mm": 0.1342857,
+    "note": "replaces REV1 value 0.11296821; verified from printed k.gcode"
+  },
+  "base": {
+    "pre_side_brim_mm": 8,
+    "pre_side_speed_mm_s": 30,
+    "base_layers": 3,
+    "hatch_spacing_mm": 1.2,
+    "hatch_speed_mm_s": 30,
+    "purpose": "integrated support so corners do not lift off bed (cause of colour-change skew)"
+  },
+  "pangkon": {
+    "heights_mm": [
+      3.6,
+      11.4
+    ],
+    "insets_mm": [
+      0.6,
+      1.2,
+      1.8
+    ],
+    "speed_mm_s": 40,
+    "note": "must bond to the inner side of the wall, not float"
+  },
+  "wall": {
+    "loops": 2,
+    "insets_mm": [
+      0.6,
+      1.4
+    ],
+    "nominal_thickness_mm": 2.0,
+    "speed_mm_s": {
+      "layers_1_10": 40,
+      "layers_11_plus": 50
+    },
+    "reference_note": "validated ZCCAD jobs use 1 line per contour; 2 loops retained for the 2 mm requirement"
+  },
+  "motion": {
+    "travel_mm_s": 300,
+    "z_hop_mm": 0.6,
+    "retract_mm": 3,
+    "retract_speed_mm_s": 60,
+    "recover_speed_mm_s": 80,
+    "prime_mm": 0.1,
+    "lead_in": "inside the letter, 2 mm toward wall start; stop-and-go must not mark the outside",
+    "layer_transition": "continuous, no retract/prime between wall layers"
+  },
+  "dialect": {
+    "commands": [
+      "G21",
+      "G90",
+      "G82",
+      "G28"
+    ],
+    "no_G0_with_E": true,
+    "no_E_during_Z": true,
+    "G82_note": "present in validated files; firmware response UNVERIFIED"
+  },
+  "validation": {
+    "layers": 84,
+    "errors": 0,
+    "E_per_mm_replayed": 0.134286,
+    "deposit_path_m": 131.046,
+    "filament_m": 17.598,
+    "filament_g": 52.5,
+    "gcode_sha256": "7a22abde4b7d31c6f9ae04ebf2d9829d2c64861e8084db1e062edd7c5f61add4"
+  },
+  "native_zccad_observation": {
+    "date": "2026-11-21",
+    "dxf_import": "ADve tes.dxf imported successfully",
+    "layer_height_mm": 0.3,
+    "wall_thickness_mm": 1.2,
+    "line_count": 1,
+    "infill_spacing_mm": 1.2,
+    "file_output": {
+      "print_speed_mm_s": 38,
+      "first_speed_mm_s": 30,
+      "move_speed_mm_s": 300,
+      "temperature_C": 220,
+      "machine_type": "ZC-80"
+    },
+    "get_path_extruder_length_m": 0.0,
+    "note": "native toolpath empty in current UI state; dialect header/footer confirmed"
+  }
+}

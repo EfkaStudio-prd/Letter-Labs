@@ -11,6 +11,11 @@ __pycache__/
 !artifacts/T1_walls_only_25mm.gcode
 !artifacts/T2_face_closed_27mm.gcode
 
+# Ka Ka / REV2 review package: these are the parameter-revision evidence files.
+# The large superseded Orca default-profile outputs are intentionally NOT tracked.
+!artifacts/KaKa_REV2/*.gcode
+!artifacts/KaKa_REV2/REV2/*.gcode
+
 # Editor / OS
 .vscode/
 .idea/
